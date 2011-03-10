@@ -35,6 +35,7 @@ DIRECTORY_NS         = NAMESPACE_BASE + "/directory"
 RESET_NS             = NAMESPACE_BASE + "/reset"
 VIP_NS               = NAMESPACE_BASE + "/vip"
 IMAGEIMPORTEXPORT_NS = NAMESPACE_BASE + "/imageimportexport"
+DATACENTER_NS        = NAMESPACE_BASE + "/datacenter"
 SUPPORT_NS           = NAMESPACE_BASE + "/support"
 GENERAL_NS           = NAMESPACE_BASE + "/general"
 IPPLAN_NS            = NAMESPACE_BASE + "/ipplan"
@@ -49,7 +50,7 @@ WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 #   - implement list_sizes()
 #   - implement list_images()
 #   x implement list_locations()
-#   - implement .... any other base methods missing?
+#   - implement .... any other standard functions missing?
 #	- implement various ex_* extension functions for opsource-specific features
 #       x ex_graceful_shutdown
 #       x ex_start_node
@@ -178,9 +179,7 @@ class OpsourceNodeDriver(NodeDriver):
     
     def list_locations(self):
         """list locations (datacenters) available for instantiating servers and
-            networks.  This is documented in the opsource cloud REST API v0.9
-            documentation, but does not appear to work as of March 2011, so this
-            method has not been successfully tested yet.
+            networks.  
         """
         return self._to_locations(self.connection.request('/datacenter').object)
     
@@ -236,7 +235,7 @@ class OpsourceNodeDriver(NodeDriver):
         """List networks deployed across all data center locations for your
         organization.  The response includes the location of each network.
         
-        Returns an array of dict's that look like:
+        Returns a list of OpsourceNetwork objects
         """
         return self._to_networks(self.connection.request('/networkWithLocation').object)
     
@@ -248,11 +247,10 @@ class OpsourceNodeDriver(NodeDriver):
         multicast = False
         if element.findtext("{%s}multicast" % NETWORK_NS) == 'true':
             multicast = True
-        
-        l = NodeLocation(id=element.findtext("{%s}location" % NETWORK_NS),
-                         name='unknown',  # XXX: would be nice to fill this in
-                         country='unknown',  # XXX: this too
-                         driver=self) 
+
+        location_id = element.findtext("{%s}location" % NETWORK_NS)        
+        if location_id is not None:
+            l = filter(lambda x: x.id == location_id, self.list_locations())
                         
         return OpsourceNetwork(id=element.findtext("{%s}id" % NETWORK_NS),
                                name=element.findtext("{%s}name" % NETWORK_NS),
