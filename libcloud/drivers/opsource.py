@@ -13,27 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Drivers for working with different providers
-"""
+from libcloud.utils import deprecated_warning
+from libcloud.compute.drivers.opsource import *
 
-__all__ = [
-    'brightbox',
-    'dummy',
-    'ec2',
-    'ecp',
-    'elastichosts',
-    'cloudsigma',
-    'gogrid',
-    'ibm_sbc',
-    'linode',
-    'opennebula',
-    'rackspace',
-    'rimuhosting',
-    'slicehost',
-    'softlayer',
-    'vcloud',
-    'voxel',
-    'vpsnet',
-    'opsource',
-]
+deprecated_warning(__name__)

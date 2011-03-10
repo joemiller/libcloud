@@ -70,6 +70,8 @@ DRIVERS = {
         ('libcloud.drivers.dreamhost', 'DreamhostNodeDriver'),
     Provider.BRIGHTBOX:
         ('libcloud.drivers.brightbox', 'BrightboxNodeDriver'),
+    Provider.OPSOURCE:
+        ('libcloud.drivers.opsource', 'OpsourceNodeDriver'),
 }
 
 def get_driver(provider):
