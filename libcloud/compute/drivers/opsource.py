@@ -43,7 +43,7 @@ WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 # TODO:
 #   x need to get orgId during initial connection instead of hardcoding mine into the code
 #   x implement list_nodes()
-#   - implement create_node()
+#   - implement create_node()  (needs net-id and image-id to work, so we should implement those first)
 #   x implement reboot()
 #   - implement destroy_node()
 #   - implement list_sizes()
@@ -54,6 +54,7 @@ WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 #       x ex_graceful_shutdown
 #       x ex_start_node
 #       x ex_power_off
+#       x ex_list_networks
 #       - ex_list_pending_nodes
 #       - add pending servers to list_nodes() ?
 #       x ...what else?
@@ -139,7 +140,23 @@ class OpsourceConnection(ConnectionUserAndKey):
         """
         self.orgId = self.request('/myaccount').object.findtext("{%s}orgId" % DIRECTORY_NS)
 
+class OpsourceNetwork(object):
+    """
+    Opsource network with location
+    """
+    
+    def __init__(self, id, name, description, location, privateNet, multicast):
+        self.id = str(id)
+        self.name = name
+        self.description = description
+        self.location = location
+        self.privateNet = privateNet
+        self.multicast = multicast
 
+    def __repr__(self):
+        return (('<OpsourceNetwork: id=%s, name=%s, description=%s, location=%s, privateNet=%s, multicast=%s>')
+                % (self.id, self.name, self.description, self.location, self.privateNet, self.multicast))
+                
 class OpsourceNodeDriver(NodeDriver):
     """
     Opsource node driver
@@ -154,10 +171,10 @@ class OpsourceNodeDriver(NodeDriver):
         return self._to_nodes(self.connection.request('/server/deployed').object)
     
     def list_sizes(self, location=None):
-        return self._to_sizes(self.connection.request('/flavors.xml').object)
+        pass
     
     def list_images(self, location=None):
-        return self._to_images(self.connection.request('/images.xml').object)
+        pass
     
     def list_locations(self):
         """list locations (datacenters) available for instantiating servers and
@@ -168,6 +185,16 @@ class OpsourceNodeDriver(NodeDriver):
         return self._to_locations(self.connection.request('/datacenter').object)
     
     def create_node(self, **kwargs):
+        """
+        notes:
+            requirements:
+                - node name
+                - description
+                - network id (net-id)
+                - image id
+                - admin/root password
+                - isStarted = true or false
+        """
         pass
     
     def reboot_node(self, node):
@@ -204,6 +231,35 @@ class OpsourceNodeDriver(NodeDriver):
         object = self.connection.request('/server/%s?poweroff' % node.id).object
         result = object.findtext("{%s}result" % GENERAL_NS)
         return result == 'SUCCESS'
+        
+    def ex_list_networks(self):
+        """List networks deployed across all data center locations for your
+        organization.  The response includes the location of each network.
+        
+        Returns an array of dict's that look like:
+        """
+        return self._to_networks(self.connection.request('/networkWithLocation').object)
+    
+    def _to_networks(self, object):
+        node_elements = object.findall("{%s}network" % NETWORK_NS)
+        return [ self._to_network(el) for el in node_elements ]
+        
+    def _to_network(self, element):
+        multicast = False
+        if element.findtext("{%s}multicast" % NETWORK_NS) == 'true':
+            multicast = True
+        
+        l = NodeLocation(id=element.findtext("{%s}location" % NETWORK_NS),
+                         name='unknown',  # XXX: would be nice to fill this in
+                         country='unknown',  # XXX: this too
+                         driver=self) 
+                        
+        return OpsourceNetwork(id=element.findtext("{%s}id" % NETWORK_NS),
+                               name=element.findtext("{%s}name" % NETWORK_NS),
+                               description=element.findtext("{%s}description" % NETWORK_NS),
+                               location=l,
+                               privateNet=element.findtext("{%s}privateNet" % NETWORK_NS),
+                               multicast=multicast)
     
     def _to_locations(self, object):
         node_elements = object.findall("{%s}datacenter" % DATACENTER_NS)
