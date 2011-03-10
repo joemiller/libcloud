@@ -53,9 +53,9 @@ WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 #	- implement various ex_* extension functions for opsource-specific features
 #       x ex_graceful_shutdown
 #       x ex_start_node
-#       - ex_power_off
+#       x ex_power_off
 #       - ex_list_pending_nodes
-#       - add pending servers to list_nodes()
+#       - add pending servers to list_nodes() ?
 #       x ...what else?
 
 class OpsourceResponse(Response):
@@ -192,6 +192,16 @@ class OpsourceNodeDriver(NodeDriver):
 	    request into the operating system.
         """
         object = self.connection.request('/server/%s?shutdown' % node.id).object
+        result = object.findtext("{%s}result" % GENERAL_NS)
+        return result == 'SUCCESS'
+        
+    def ex_power_off(self, node):
+        """This function will abruptly power-off a server.  Unlike ex_shutdown_graceful,
+        success ensures the node will stop but some OS and application configurations may
+        be adversely affected by the equivalent of pulling the power plug out of the
+        machine.
+        """
+        object = self.connection.request('/server/%s?poweroff' % node.id).object
         result = object.findtext("{%s}result" % GENERAL_NS)
         return result == 'SUCCESS'
     
