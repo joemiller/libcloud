@@ -41,11 +41,7 @@ GENERAL_NS           = NAMESPACE_BASE + "/general"
 IPPLAN_NS            = NAMESPACE_BASE + "/ipplan"
 WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 
-# TODO:
-#   x need to get orgId during initial connection instead of hardcoding mine into the code
-#       - ex_list_pending_nodes
-#       - add pending servers to list_nodes() ?
-#       x ...what else?
+# Roadmap / TODO:
 #
 # 0.1 - Basic functionality:  nodes: create, delete, start, stop, reboot  
 #                             (base OS images only, no customer images suported yet)
