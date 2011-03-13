@@ -43,22 +43,48 @@ WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 
 # TODO:
 #   x need to get orgId during initial connection instead of hardcoding mine into the code
+#       - ex_list_pending_nodes
+#       - add pending servers to list_nodes() ?
+#       x ...what else?
+#
+# 0.1 - Basic functionality:  nodes: create, delete, start, stop, reboot  
+#                             (base OS images only, no customer images suported yet)
 #   x implement list_nodes()
-#   - implement create_node()  (needs net-id and image-id to work, so we should implement those first)
+#   - implement create_node()  (only support Base OS images, no customer images yet)
 #   x implement reboot()
 #   - implement destroy_node()
 #   - implement list_sizes()
-#   - implement list_images()
+#   - implement list_images()   (only support Base OS images, no customer images yet)
 #   x implement list_locations()
-#   - implement .... any other standard functions missing?
 #	- implement various ex_* extension functions for opsource-specific features
 #       x ex_graceful_shutdown
 #       x ex_start_node
 #       x ex_power_off
-#       x ex_list_networks
-#       - ex_list_pending_nodes
-#       - add pending servers to list_nodes() ?
-#       x ...what else?
+#       x ex_list_networks (needed for create_node())
+#       - ex_get_server_details
+#   - refactor:  switch to using fixxpath() from the vcloud driver for dealing with xml namespace tags
+#   - add optional OpsourceStatus object support to:
+#       x _to_node()
+#       - _to_network()
+#
+# 0.2 - Support customer images (snapshots) and server modification functions
+#   - support customer-created images:
+#       - list deployed customer images  (in list_images() ?)
+#       - list pending customer images  (in list_images() ?)
+#       - delete customer images
+#       - modify customer images
+#   - add "pending-servers" in list_nodes()
+#	- implement various ex_* extension functions for opsource-specific features
+#       - ex_modify_server()
+#       - ex_add_storage_to_server()
+#       - ex_snapshot_server()  (create's customer image)
+# 
+# 0.3 - support Network API
+# 0.4 - Support VIP/Load-balancing API
+# 0.5 - support Files Account API
+# 0.6 - support Reports API
+# 1.0 - Opsource 0.9 API feature complete, tested
+
 
 class OpsourceResponse(Response):
     
@@ -85,10 +111,22 @@ class OpsourceResponse(Response):
             if self.status == 400:
             	code = body.findtext("{%s}resultCode" % GENERAL_NS)
             	message = body.findtext("{%s}resultDetail" % GENERAL_NS)
-                return "%s: %s" % (code, message)
+                #return "%s: %s" % (code, message)
+                #return (code, message)
+                return OpsourceAPIException(code, message)
         except:
             return self.body
 
+class OpsourceAPIException(Exception):
+    def __init__(self, code, msg):
+        self.code = code
+        self.msg = msg
+        
+    def __str__(self):
+        return self.msg
+        
+    def __repr__(self):
+        return "<OpsourceAPIException: code='%s', msg='%s'>" % (self.code, self.msg)
 
 class OpsourceConnection(ConnectionUserAndKey):
     """
@@ -98,8 +136,7 @@ class OpsourceConnection(ConnectionUserAndKey):
     host = 'api.opsourcecloud.net'
     api_path = '/oec'
     api_version = '0.9'
-    orgId = None
-    
+    _orgId = None
     responseCls = OpsourceResponse
     
     def add_default_headers(self, headers):
@@ -119,14 +156,12 @@ class OpsourceConnection(ConnectionUserAndKey):
              will result in a path like this:
            http://api.opsourcecloud.net/oec/0.9/232423-2a23-a23f-adsf2342/server/deploy
         """
-        # /myaccount requests do not require the orgId in the path because this
-        # is the request needed to get the orgId
+        # /myaccount requests do not require the orgId in the path since this
+        # is the action used to retrieve the orgId
         if action == '/myaccount':
             action = "%s/%s/%s" % (self.api_path, self.api_version, action)
         else:
-            if self.orgId == None:
-                self._get_orgId()
-            action = "%s/%s/%s/%s" % (self.api_path, self.api_version, self.orgId, action)
+            action = "%s/%s" % (self.get_resource_path_with_orgId(), action)
         
         return super(OpsourceConnection, self).request(
             action=action,
@@ -134,12 +169,47 @@ class OpsourceConnection(ConnectionUserAndKey):
             method=method, headers=headers
         )
     
-    def _get_orgId(self):
+    def get_resource_path_with_orgId(self):
+        """this method returns a resource path that is necessary for referencing
+           resources that require a full path instead of just an ID, such as
+           networks, and server images.
+           It is a public method used both internally by this class and callable
+           by other classes.
+        """
+        return ("%s/%s/%s" % (self.api_path, self.api_version, self.orgId()))
+        
+    def orgId(self):
         """
         send the /myaccount API request to opsource cloud and parse the 'orgId' from the
         XML response object.  We need the orgId to use most of the other API functions
         """
-        self.orgId = self.request('/myaccount').object.findtext("{%s}orgId" % DIRECTORY_NS)
+        if self._orgId == None:
+            self._orgId = self.request('/myaccount').object.findtext("{%s}orgId" % DIRECTORY_NS)
+        return self._orgId
+
+class OpsourceStatus(object):
+    """
+    Opsource API pending operation status class
+        action, requestTime, username, numberOfSteps, updateTime, step.name, step.number,
+        step.percentComplete, failureReason, 
+    """
+    def __init__(self, action=None, requestTime=None, userName=None, numberOfSteps=None, updateTime=None,
+                step_name=None, step_number=None, step_percentComplete=None, failureReason=None):
+        self.action = action
+        self.requestTime = requestTime
+        self.userName = userName
+        self.numberOfSteps = numberOfSteps
+        self.updateTime = updateTime
+        self.step_name = step_name
+        self.step_number = step_number
+        self.step_percentComplete = step_percentComplete
+        self.failureReason = failureReason
+        
+    def __repr__(self):
+        return (('<OpsourceStatus: action=%s, requestTime=%s, userName=%s, numberOfSteps=%s, updateTime=%s, ' \
+                  'step_name=%s, step_number=%s, step_percentComplete=%s, failureReason=%s')
+                  % (self.action, self.requestTime, self.userName, self.numberOfSteps, self.updateTime,
+                    self.step_name, self.step_number, self.step_percentComplete, self.failureReason))
 
 class OpsourceNetwork(object):
     """
@@ -189,8 +259,8 @@ class OpsourceNodeDriver(NodeDriver):
             requirements:
                 - node name
                 - description
-                - network id (net-id)
-                - image id
+                - network id (net-id) (requires a path, not just ID)
+                - image id (requires a path, not just Id)
                 - admin/root password
                 - isStarted = true or false
         """
@@ -250,12 +320,14 @@ class OpsourceNodeDriver(NodeDriver):
 
         location_id = element.findtext("{%s}location" % NETWORK_NS)        
         if location_id is not None:
-            l = filter(lambda x: x.id == location_id, self.list_locations())
-                        
+            location = filter(lambda x: x.id == location_id, self.list_locations())
+        else:
+            location = None
+        
         return OpsourceNetwork(id=element.findtext("{%s}id" % NETWORK_NS),
                                name=element.findtext("{%s}name" % NETWORK_NS),
                                description=element.findtext("{%s}description" % NETWORK_NS),
-                               location=l,
+                               location=location,
                                privateNet=element.findtext("{%s}privateNet" % NETWORK_NS),
                                multicast=multicast)
     
@@ -280,6 +352,14 @@ class OpsourceNodeDriver(NodeDriver):
         else:
             state = NodeState.TERMINATED
         
+#        status_elem = element.find("{%s}status")
+#        if status_elem is not None:
+#            status = self._to_status(status_obj)
+#        else:
+#            status = None
+        ET.dump(element)
+        status = self._to_status(element.find("{%s}status" % SERVER_NS))
+            
         extra = {
             'description': element.findtext("{%s}description" % SERVER_NS),
             'sourceImageId': element.findtext("{%s}sourceImageId" % SERVER_NS),
@@ -293,6 +373,7 @@ class OpsourceNodeDriver(NodeDriver):
             'additionalLocalStorageGb': element.findtext("{%s}machineSpecification/{%s}additionalLocalStorageGb" % (SERVER_NS, SERVER_NS)),
             'OS_type': element.findtext("{%s}machineSpecification/{%s}operatingSystem/{%s}type" % (SERVER_NS, SERVER_NS, SERVER_NS) ),
             'OS_displayName': element.findtext("{%s}machineSpecification/{%s}operatingSystem/{%s}displayName" % (SERVER_NS, SERVER_NS, SERVER_NS) ),
+            'status': status,
         }
         
         n = Node(id=element.findtext("{%s}id" % SERVER_NS),
@@ -331,3 +412,16 @@ class OpsourceNodeDriver(NodeDriver):
                      name=str(element.findtext('name')),
                      driver=self.connection.driver)
         return i
+
+    def _to_status(self, element):
+        if element == None:
+            return OpsourceStatus()
+        s = OpsourceStatus(action=element.findtext("{%s}action" % SERVER_NS),
+                          requestTime=element.findtext("{%s}requestTime" % SERVER_NS),
+                          userName=element.findtext("{%s}userName" % SERVER_NS),
+                          numberOfSteps=element.findtext("{%s}numberOfSteps" % SERVER_NS),
+                          step_name=element.findtext("{%s}step/{%s}name" % (SERVER_NS,SERVER_NS)),
+                          step_number=element.findtext("{%s}step/{%s}number" % (SERVER_NS,SERVER_NS)),
+                          step_percentComplete=element.findtext("{%s}step/{%s}percentComplete" % (SERVER_NS,SERVER_NS)),
+                          failureReason=element.findtext("{%s}failureReason" % SERVER_NS))
+        return s
