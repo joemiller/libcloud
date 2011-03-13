@@ -24,23 +24,6 @@ import socket
 from xml.etree import ElementTree as ET
 from xml.parsers.expat import ExpatError
 
-from pprint import pprint
-
-# setup a few variables to represent all of the opsource cloud namespaces
-NAMESPACE_BASE       = "http://oec.api.opsource.net/schemas"
-ORGANIZATION_NS      = NAMESPACE_BASE + "/organization"
-SERVER_NS            = NAMESPACE_BASE + "/server"
-NETWORK_NS           = NAMESPACE_BASE + "/network"
-DIRECTORY_NS         = NAMESPACE_BASE + "/directory"
-RESET_NS             = NAMESPACE_BASE + "/reset"
-VIP_NS               = NAMESPACE_BASE + "/vip"
-IMAGEIMPORTEXPORT_NS = NAMESPACE_BASE + "/imageimportexport"
-DATACENTER_NS        = NAMESPACE_BASE + "/datacenter"
-SUPPORT_NS           = NAMESPACE_BASE + "/support"
-GENERAL_NS           = NAMESPACE_BASE + "/general"
-IPPLAN_NS            = NAMESPACE_BASE + "/ipplan"
-WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
-
 # Roadmap / TODO:
 #
 # 0.1 - Basic functionality:  nodes: create, delete, start, stop, reboot  
@@ -81,6 +64,12 @@ WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 # 0.6 - support Reports API
 # 1.0 - Opsource 0.9 API feature complete, tested
 
+def fixxpath(root, xpath):
+    """ElementTree wants namespaces in its xpaths, so here we add them."""
+    namespace, root_tag = root.tag[1:].split("}", 1)
+    fixed_xpath = "/".join(["{%s}%s" % (namespace, e)
+                            for e in xpath.split("/")])
+    return fixed_xpath
 
 class OpsourceResponse(Response):
     
@@ -105,8 +94,8 @@ class OpsourceResponse(Response):
         
         try:
             if self.status == 400:
-            	code = body.findtext("{%s}resultCode" % GENERAL_NS)
-            	message = body.findtext("{%s}resultDetail" % GENERAL_NS)
+            	code = body.findtext(fixxpath(body, "resultCode"))
+            	message = body.findtext(fixxpath(body, "resultDetail"))
                 #return "%s: %s" % (code, message)
                 #return (code, message)
                 return OpsourceAPIException(code, message)
@@ -180,7 +169,8 @@ class OpsourceConnection(ConnectionUserAndKey):
         XML response object.  We need the orgId to use most of the other API functions
         """
         if self._orgId == None:
-            self._orgId = self.request('/myaccount').object.findtext("{%s}orgId" % DIRECTORY_NS)
+            body = self.request('/myaccount').object
+            self._orgId = body.findtext(fixxpath(body, "orgId"))
         return self._orgId
 
 class OpsourceStatus(object):
@@ -263,8 +253,8 @@ class OpsourceNodeDriver(NodeDriver):
         pass
     
     def reboot_node(self, node):
-        object = self.connection.request('/server/%s?restart' % node.id).object
-        result = object.findtext("{%s}result" % GENERAL_NS)
+        body = self.connection.request('/server/%s?restart' % node.id).object
+        result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
     
     def destroy_node(self, node):
@@ -273,8 +263,8 @@ class OpsourceNodeDriver(NodeDriver):
 
     def ex_start_node(self, node):
         """Powers on an existing deployed server"""
-        object = self.connection.request('/server/%s?start' % node.id).object
-        result = object.findtext("{%s}result" % GENERAL_NS)
+        body = self.connection.request('/server/%s?start' % node.id).object
+        result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
             
     def ex_shutdown_graceful(self, node):
@@ -283,8 +273,8 @@ class OpsourceNodeDriver(NodeDriver):
 	    on this function means the system has successfully passed the
 	    request into the operating system.
         """
-        object = self.connection.request('/server/%s?shutdown' % node.id).object
-        result = object.findtext("{%s}result" % GENERAL_NS)
+        body = self.connection.request('/server/%s?shutdown' % node.id).object
+        result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
         
     def ex_power_off(self, node):
@@ -293,8 +283,8 @@ class OpsourceNodeDriver(NodeDriver):
         be adversely affected by the equivalent of pulling the power plug out of the
         machine.
         """
-        object = self.connection.request('/server/%s?poweroff' % node.id).object
-        result = object.findtext("{%s}result" % GENERAL_NS)
+        body = self.connection.request('/server/%s?poweroff' % node.id).object
+        result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
         
     def ex_list_networks(self):
@@ -306,71 +296,71 @@ class OpsourceNodeDriver(NodeDriver):
         return self._to_networks(self.connection.request('/networkWithLocation').object)
     
     def _to_networks(self, object):
-        node_elements = object.findall("{%s}network" % NETWORK_NS)
+        node_elements = object.findall(fixxpath(object, "network"))
         return [ self._to_network(el) for el in node_elements ]
         
     def _to_network(self, element):
         multicast = False
-        if element.findtext("{%s}multicast" % NETWORK_NS) == 'true':
+        if element.findtext(fixxpath(element, "multicast")) == 'true':
             multicast = True
 
-        location_id = element.findtext("{%s}location" % NETWORK_NS)        
+        location_id = element.findtext(fixxpath(element, "location"))
         if location_id is not None:
             location = filter(lambda x: x.id == location_id, self.list_locations())
         else:
             location = None
         
-        return OpsourceNetwork(id=element.findtext("{%s}id" % NETWORK_NS),
-                               name=element.findtext("{%s}name" % NETWORK_NS),
-                               description=element.findtext("{%s}description" % NETWORK_NS),
+        return OpsourceNetwork(id=element.findtext(fixxpath(element, "id")),
+                               name=element.findtext(fixxpath(element, "name")),
+                               description=element.findtext(fixxpath(element, "description")),
                                location=location,
-                               privateNet=element.findtext("{%s}privateNet" % NETWORK_NS),
+                               privateNet=element.findtext(fixxpath(element, "privateNet")),
                                multicast=multicast)
     
     def _to_locations(self, object):
-        node_elements = object.findall("{%s}datacenter" % DATACENTER_NS)
+        node_elements = object.findall(fixxpath(object, "datacenter"))
         return [ self._to_location(el) for el in node_elements ]
     
     def _to_location(self, element):
-        l = NodeLocation(id=element.findtext("{%s}location" % DATACENTER_NS),
-                         name=element.findtext("{%s}displayName" % DATACENTER_NS),
-                         country=element.findtext("{%s}country" % DATACENTER_NS),
+        l = NodeLocation(id=element.findtext(fixxpath(element, "location")),
+                         name=element.findtext(fixxpath(element, "displayName")),
+                         country=element.findtext(fixxpath(element, "country")),
                          driver=self)
         return l
     
     def _to_nodes(self, object):
-        node_elements = object.findall("{%s}DeployedServer" % SERVER_NS)
+        node_elements = object.findall(fixxpath(object, "DeployedServer"))
         return [ self._to_node(el) for el in node_elements ]
     
     def _to_node(self, element):
-        if element.findtext("{%s}isStarted") == 'true':
+        if element.findtext(fixxpath(element, "isStarted")) == 'true':
              state = NodeState.RUNNING
         else:
             state = NodeState.TERMINATED
 
-        status = self._to_status(element.find("{%s}status" % SERVER_NS))
+        status = self._to_status(element.find(fixxpath(element, "status")))
             
         extra = {
-            'description': element.findtext("{%s}description" % SERVER_NS),
-            'sourceImageId': element.findtext("{%s}sourceImageId" % SERVER_NS),
-            'networkId': element.findtext("{%s}networkId" % SERVER_NS),
-            'networkId': element.findtext("{%s}networkId" % SERVER_NS),
-            'machineName': element.findtext("{%s}machineName" % SERVER_NS),
-            'deployedTime': element.findtext("{%s}deployedTime" % SERVER_NS),
-            'cpuCount': element.findtext("{%s}machineSpecification/{%s}cpuCount" % (SERVER_NS, SERVER_NS)),
-            'memoryMb': element.findtext("{%s}machineSpecification/{%s}memoryMb" % (SERVER_NS, SERVER_NS)),
-            'osStorageGb': element.findtext("{%s}machineSpecification/{%s}osStorageGb" % (SERVER_NS, SERVER_NS)),
-            'additionalLocalStorageGb': element.findtext("{%s}machineSpecification/{%s}additionalLocalStorageGb" % (SERVER_NS, SERVER_NS)),
-            'OS_type': element.findtext("{%s}machineSpecification/{%s}operatingSystem/{%s}type" % (SERVER_NS, SERVER_NS, SERVER_NS) ),
-            'OS_displayName': element.findtext("{%s}machineSpecification/{%s}operatingSystem/{%s}displayName" % (SERVER_NS, SERVER_NS, SERVER_NS) ),
+            'description': element.findtext(fixxpath(element, "description")),
+            'sourceImageId': element.findtext(fixxpath(element,"sourceImageId")),
+            'networkId': element.findtext(fixxpath(element, "networkId")),
+            'networkId': element.findtext(fixxpath(element, "networkId")),
+            'machineName': element.findtext(fixxpath(element, "machineName")),
+            'deployedTime': element.findtext(fixxpath(element, "deployedTime")),
+            'cpuCount': element.findtext(fixxpath(element, "machineSpecification/cpuCount")),
+            'memoryMb': element.findtext(fixxpath(element, "machineSpecification/memoryMb")),
+            'osStorageGb': element.findtext(fixxpath(element, "machineSpecification/osStorageGb")),
+            'additionalLocalStorageGb': element.findtext(fixxpath(element, "machineSpecification/additionalLocalStorageGb")),
+            'OS_type': element.findtext(fixxpath(element, "machineSpecification/operatingSystem/type")),
+            'OS_displayName': element.findtext(fixxpath(element, "machineSpecification/operatingSystem/displayName")),
             'status': status,
         }
         
-        n = Node(id=element.findtext("{%s}id" % SERVER_NS),
-                 name=element.findtext("{%s}name" % SERVER_NS),
+        n = Node(id=element.findtext(fixxpath(element, "id")),
+                 name=element.findtext(fixxpath(element, "name")),
                  state=state,
                  public_ip="unknown",
-                 private_ip=element.findtext("{%s}privateIpAddress" % SERVER_NS),
+                 private_ip=element.findtext(fixxpath(element, "privateIpAddress")),
                  driver=self.connection.driver,
                  extra=extra)
         return n
@@ -406,12 +396,12 @@ class OpsourceNodeDriver(NodeDriver):
     def _to_status(self, element):
         if element == None:
             return OpsourceStatus()
-        s = OpsourceStatus(action=element.findtext("{%s}action" % SERVER_NS),
-                          requestTime=element.findtext("{%s}requestTime" % SERVER_NS),
-                          userName=element.findtext("{%s}userName" % SERVER_NS),
-                          numberOfSteps=element.findtext("{%s}numberOfSteps" % SERVER_NS),
-                          step_name=element.findtext("{%s}step/{%s}name" % (SERVER_NS,SERVER_NS)),
-                          step_number=element.findtext("{%s}step/{%s}number" % (SERVER_NS,SERVER_NS)),
-                          step_percentComplete=element.findtext("{%s}step/{%s}percentComplete" % (SERVER_NS,SERVER_NS)),
-                          failureReason=element.findtext("{%s}failureReason" % SERVER_NS))
+        s = OpsourceStatus(action=element.findtext(fixxpath(element, "action")),
+                          requestTime=element.findtext(fixxpath(element, "requestTime")),
+                          userName=element.findtext(fixxpath(element, "userName")),
+                          numberOfSteps=element.findtext(fixxpath(element, "numberOfSteps")),
+                          step_name=element.findtext(fixxpath(element, "step/name")),
+                          step_number=element.findtext(fixxpath(element, "step/number")),
+                          step_percentComplete=element.findtext(fixxpath(element, "step/percentComplete")),
+                          failureReason=element.findtext(fixxpath(element, "failureReason")))
         return s
