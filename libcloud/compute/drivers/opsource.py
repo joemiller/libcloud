@@ -26,7 +26,7 @@ from xml.parsers.expat import ExpatError
 
 # Roadmap / TODO:
 #
-# 0.1 - Basic functionality:  nodes: create, delete, start, stop, reboot  
+# 0.1 - Basic functionality:  create, delete, start, stop, reboot - servers
 #                             (base OS images only, no customer images suported yet)
 #   x implement list_nodes()
 #   - implement create_node()  (only support Base OS images, no customer images yet)
@@ -41,7 +41,7 @@ from xml.parsers.expat import ExpatError
 #       x ex_power_off
 #       x ex_list_networks (needed for create_node())
 #       - ex_get_server_details
-#   - refactor:  switch to using fixxpath() from the vcloud driver for dealing with xml namespace tags
+#   x refactor:  switch to using fixxpath() from the vcloud driver for dealing with xml namespace tags
 #   - add optional OpsourceStatus object support to:
 #       x _to_node()
 #       - _to_network()
