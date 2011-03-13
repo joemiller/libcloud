@@ -351,13 +351,7 @@ class OpsourceNodeDriver(NodeDriver):
              state = NodeState.RUNNING
         else:
             state = NodeState.TERMINATED
-        
-#        status_elem = element.find("{%s}status")
-#        if status_elem is not None:
-#            status = self._to_status(status_obj)
-#        else:
-#            status = None
-        ET.dump(element)
+
         status = self._to_status(element.find("{%s}status" % SERVER_NS))
             
         extra = {
