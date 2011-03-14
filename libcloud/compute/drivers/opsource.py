@@ -15,14 +15,16 @@
 """
 Opsource Driver
 """
-from libcloud.types import NodeState, Provider, InvalidCredsError, MalformedResponseError
-from libcloud.base import ConnectionUserAndKey, Response, NodeDriver, Node
-from libcloud.base import NodeSize, NodeImage, NodeLocation
-from libcloud.base import is_private_subnet
 import base64
 import socket
 from xml.etree import ElementTree as ET
 from xml.parsers.expat import ExpatError
+
+from libcloud.common.base import ConnectionUserAndKey, Response
+from libcloud.common.types import InvalidCredsError, MalformedResponseError
+from libcloud.compute.types import NodeState, Provider
+from libcloud.compute.base import NodeDriver, Node
+from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 
 # Roadmap / TODO:
 #
