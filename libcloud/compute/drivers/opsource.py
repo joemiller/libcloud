@@ -35,7 +35,7 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #   x implement reboot()
 #   - implement destroy_node()
 #   - implement list_sizes()
-#   - implement list_images()   (only support Base OS images, no customer images yet)
+#   x implement list_images()   (only support Base OS images, no customer images yet)
 #   x implement list_locations()
 #	- implement various ex_* extension functions for opsource-specific features
 #       x ex_graceful_shutdown
@@ -44,6 +44,7 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #       x ex_list_networks (needed for create_node())
 #       - ex_get_server_details
 #   x refactor:  switch to using fixxpath() from the vcloud driver for dealing with xml namespace tags
+#   - refactor:  move some functionality from OpsourceConnection.request() method into new .request_with_orgId() method
 #   - add OpsourceStatus object support to:
 #       x _to_node()
 #       x _to_network()
@@ -145,7 +146,7 @@ class OpsourceConnection(ConnectionUserAndKey):
         """
         # /myaccount requests do not require the orgId in the path since this
         # is the action used to retrieve the orgId
-        if action == '/myaccount':
+        if action == '/myaccount' or action == '/base/image':
             action = "%s/%s/%s" % (self.api_path, self.api_version, action)
         else:
             action = "%s/%s" % (self.get_resource_path_with_orgId(), action)
@@ -155,6 +156,10 @@ class OpsourceConnection(ConnectionUserAndKey):
             params=params, data=data,
             method=method, headers=headers
         )
+        
+    def request_with_orgId(self, action, params=None, data='', headers=None, method='GET'):
+        ##place##
+        pass
     
     def get_resource_path_with_orgId(self):
         """this method returns a resource path that is necessary for referencing
@@ -216,6 +221,7 @@ class OpsourceNetwork(object):
     def __repr__(self):
         return (('<OpsourceNetwork: id=%s, name=%s, description=%s, location=%s, privateNet=%s, multicast=%s>')
                 % (self.id, self.name, self.description, self.location, self.privateNet, self.multicast))
+
                 
 class OpsourceNodeDriver(NodeDriver):
     """
@@ -234,7 +240,11 @@ class OpsourceNodeDriver(NodeDriver):
         pass
     
     def list_images(self, location=None):
-        pass
+        """return a list of available images
+            Currently only returns the default 'base OS images' provided by opsource.
+            Customer images (snapshots) are not yet supported.
+        """
+        return self._to_base_images(self.connection.request('/base/image').object)
     
     def list_locations(self):
         """list locations (datacenters) available for instantiating servers and
@@ -387,15 +397,36 @@ class OpsourceNodeDriver(NodeDriver):
                      driver=self.connection.driver)
         return s
     
-    def _to_images(self, object):
-        if object.tag == 'image':
-            return [ self._to_image(object) ]
-        elements = object.findall('image')
-        return [ self._to_image(el) for el in elements ]
+    def _to_base_images(self, object):
+        node_elements = object.findall(fixxpath(object, "ServerImage"))
+        return [ self._to_base_image(el) for el in node_elements ]
     
-    def _to_image(self, element):
-        i = NodeImage(id=int(element.findtext('id')),
-                     name=str(element.findtext('name')),
+    def _to_base_image(self, element):
+        ## place ##
+        ## probably need multiple _to_image() functions that parse <ServerImage> differently
+        ## than <DeployedImage>
+        location_id = element.findtext(fixxpath(element, "location"))
+        if location_id is not None:
+            location = filter(lambda x: x.id == location_id, self.list_locations())
+        else:
+            location = None
+        
+        extra = {
+            'description': element.findtext(fixxpath(element, "description")),
+            'OS_type': element.findtext(fixxpath(element, "operatingSystem/type")),
+            'OS_displayName': element.findtext(fixxpath(element, "operatingSystem/displayName")),
+            'cpuCount': element.findtext(fixxpath(element, "cpuCount")),
+            'resourcePath': element.findtext(fixxpath(element, "resourcePath")),
+            'memory': element.findtext(fixxpath(element, "memory")),
+            'osStorage': element.findtext(fixxpath(element, "osStorage")),
+            'additionalStorage': element.findtext(fixxpath(element, "additionalStorage")),
+            'created': element.findtext(fixxpath(element, "created")),
+            'location': location,
+        }
+        
+        i = NodeImage(id=str(element.findtext(fixxpath(element, "id"))),
+                     name=str(element.findtext(fixxpath(element, "name"))),
+                     extra=extra,
                      driver=self.connection.driver)
         return i
 
