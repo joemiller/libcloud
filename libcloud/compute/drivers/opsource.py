@@ -37,7 +37,7 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #   - implement list_sizes()
 #   x implement list_images()   (only support Base OS images, no customer images yet)
 #   x implement list_locations()
-#	- implement various ex_* extension functions for opsource-specific features
+#	- implement ex_* extension functions for opsource-specific features
 #       x ex_graceful_shutdown
 #       x ex_start_node
 #       x ex_power_off
@@ -133,23 +133,7 @@ class OpsourceConnection(ConnectionUserAndKey):
         return headers
     
     def request(self, action, params=None, data='', headers=None, method='GET'):
-        """
-        This method is used to make API requests to the Opsource Cloud.
-        It does some extra legwork by looking up the orgId before sending requests, since
-        (most) requests to opsource cloud require the orgId to be included in the path.
-        The orgId is obtained by calling /myaccount.
-        
-        eg:
-           .request('/server/deployed')
-             will result in a path like this:
-           http://api.opsourcecloud.net/oec/0.9/232423-2a23-a23f-adsf2342/server/deploy
-        """
-        # /myaccount requests do not require the orgId in the path since this
-        # is the action used to retrieve the orgId
-        if action == '/myaccount' or action == '/base/image':
-            action = "%s/%s/%s" % (self.api_path, self.api_version, action)
-        else:
-            action = "%s/%s" % (self.get_resource_path_with_orgId(), action)
+        action = "%s/%s/%s" % (self.api_path, self.api_version, action)
         
         return super(OpsourceConnection, self).request(
             action=action,
@@ -158,9 +142,14 @@ class OpsourceConnection(ConnectionUserAndKey):
         )
         
     def request_with_orgId(self, action, params=None, data='', headers=None, method='GET'):
-        ##place##
-        pass
-    
+        action = "%s/%s/%s/%s" % (self.api_path, self.api_version, self.orgId(), action)
+        
+        return super(OpsourceConnection, self).request(
+            action=action,
+            params=params, data=data,
+            method=method, headers=headers
+        )
+
     def get_resource_path_with_orgId(self):
         """this method returns a resource path that is necessary for referencing
            resources that require a full path instead of just an ID, such as
@@ -234,7 +223,7 @@ class OpsourceNodeDriver(NodeDriver):
     name = 'Opsource'
     
     def list_nodes(self):
-        return self._to_nodes(self.connection.request('/server/deployed').object)
+        return self._to_nodes(self.connection.request_with_orgId('/server/deployed').object)
     
     def list_sizes(self, location=None):
         pass
@@ -250,7 +239,7 @@ class OpsourceNodeDriver(NodeDriver):
         """list locations (datacenters) available for instantiating servers and
             networks.  
         """
-        return self._to_locations(self.connection.request('/datacenter').object)
+        return self._to_locations(self.connection.request_with_orgId('/datacenter').object)
     
     def create_node(self, **kwargs):
         """
@@ -266,7 +255,7 @@ class OpsourceNodeDriver(NodeDriver):
         pass
     
     def reboot_node(self, node):
-        body = self.connection.request('/server/%s?restart' % node.id).object
+        body = self.connection.request_with_orgId('/server/%s?restart' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
     
@@ -276,7 +265,7 @@ class OpsourceNodeDriver(NodeDriver):
 
     def ex_start_node(self, node):
         """Powers on an existing deployed server"""
-        body = self.connection.request('/server/%s?start' % node.id).object
+        body = self.connection.request_with_orgId('/server/%s?start' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
             
@@ -286,7 +275,7 @@ class OpsourceNodeDriver(NodeDriver):
 	    on this function means the system has successfully passed the
 	    request into the operating system.
         """
-        body = self.connection.request('/server/%s?shutdown' % node.id).object
+        body = self.connection.request_with_orgId('/server/%s?shutdown' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
         
@@ -296,7 +285,7 @@ class OpsourceNodeDriver(NodeDriver):
         be adversely affected by the equivalent of pulling the power plug out of the
         machine.
         """
-        body = self.connection.request('/server/%s?poweroff' % node.id).object
+        body = self.connection.request_with_orgId('/server/%s?poweroff' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
         
@@ -306,7 +295,7 @@ class OpsourceNodeDriver(NodeDriver):
         
         Returns a list of OpsourceNetwork objects
         """
-        return self._to_networks(self.connection.request('/networkWithLocation').object)
+        return self._to_networks(self.connection.request_with_orgId('/networkWithLocation').object)
     
     def _to_networks(self, object):
         node_elements = object.findall(fixxpath(object, "network"))
