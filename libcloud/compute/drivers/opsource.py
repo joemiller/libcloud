@@ -44,9 +44,9 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #       x ex_list_networks (needed for create_node())
 #       - ex_get_server_details
 #   x refactor:  switch to using fixxpath() from the vcloud driver for dealing with xml namespace tags
-#   - add optional OpsourceStatus object support to:
+#   - add OpsourceStatus object support to:
 #       x _to_node()
-#       - _to_network()
+#       x _to_network()
 #
 # 0.2 - Support customer images (snapshots) and server modification functions
 #   - support customer-created images:
@@ -204,13 +204,14 @@ class OpsourceNetwork(object):
     Opsource network with location
     """
     
-    def __init__(self, id, name, description, location, privateNet, multicast):
+    def __init__(self, id, name, description, location, privateNet, multicast, status):
         self.id = str(id)
         self.name = name
         self.description = description
         self.location = location
         self.privateNet = privateNet
         self.multicast = multicast
+        self.status = status
 
     def __repr__(self):
         return (('<OpsourceNetwork: id=%s, name=%s, description=%s, location=%s, privateNet=%s, multicast=%s>')
@@ -306,6 +307,8 @@ class OpsourceNodeDriver(NodeDriver):
         if element.findtext(fixxpath(element, "multicast")) == 'true':
             multicast = True
 
+        status = self._to_status(element.find(fixxpath(element, "status")))
+
         location_id = element.findtext(fixxpath(element, "location"))
         if location_id is not None:
             location = filter(lambda x: x.id == location_id, self.list_locations())
@@ -317,7 +320,8 @@ class OpsourceNodeDriver(NodeDriver):
                                description=element.findtext(fixxpath(element, "description")),
                                location=location,
                                privateNet=element.findtext(fixxpath(element, "privateNet")),
-                               multicast=multicast)
+                               multicast=multicast,
+                               status=status)
     
     def _to_locations(self, object):
         node_elements = object.findall(fixxpath(object, "datacenter"))
