@@ -23,7 +23,7 @@ from xml.parsers.expat import ExpatError
 from libcloud.common.base import ConnectionUserAndKey, Response
 from libcloud.common.types import InvalidCredsError, MalformedResponseError
 from libcloud.compute.types import NodeState, Provider
-from libcloud.compute.base import NodeDriver, Node
+from libcloud.compute.base import NodeDriver, Node, NodeAuthPassword
 from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 
 # Roadmap / TODO:
@@ -31,9 +31,9 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 # 0.1 - Basic functionality:  create, delete, start, stop, reboot - servers
 #                             (base OS images only, no customer images suported yet)
 #   x implement list_nodes()
-#   - implement create_node()  (only support Base OS images, no customer images yet)
+#   x implement create_node()  (only support Base OS images, no customer images yet)
 #   x implement reboot()
-#   - implement destroy_node()
+#   x implement destroy_node()
 #   - implement list_sizes()
 #   x implement list_images()   (only support Base OS images, no customer images yet)
 #   x implement list_locations()
@@ -42,9 +42,8 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #       x ex_start_node
 #       x ex_power_off
 #       x ex_list_networks (needed for create_node())
-#       - ex_get_server_details
 #   x refactor:  switch to using fixxpath() from the vcloud driver for dealing with xml namespace tags
-#   - refactor:  move some functionality from OpsourceConnection.request() method into new .request_with_orgId() method
+#   x refactor:  move some functionality from OpsourceConnection.request() method into new .request_with_orgId() method
 #   - add OpsourceStatus object support to:
 #       x _to_node()
 #       x _to_network()
@@ -66,6 +65,21 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 # 0.5 - support Files Account API
 # 0.6 - support Reports API
 # 1.0 - Opsource 0.9 API feature complete, tested
+
+# setup a few variables to represent all of the opsource cloud namespaces
+NAMESPACE_BASE       = "http://oec.api.opsource.net/schemas"
+ORGANIZATION_NS      = NAMESPACE_BASE + "/organization"
+SERVER_NS            = NAMESPACE_BASE + "/server"
+NETWORK_NS           = NAMESPACE_BASE + "/network"
+DIRECTORY_NS         = NAMESPACE_BASE + "/directory"
+RESET_NS             = NAMESPACE_BASE + "/reset"
+VIP_NS               = NAMESPACE_BASE + "/vip"
+IMAGEIMPORTEXPORT_NS = NAMESPACE_BASE + "/imageimportexport"
+DATACENTER_NS        = NAMESPACE_BASE + "/datacenter"
+SUPPORT_NS           = NAMESPACE_BASE + "/support"
+GENERAL_NS           = NAMESPACE_BASE + "/general"
+IPPLAN_NS            = NAMESPACE_BASE + "/ipplan"
+WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 
 def fixxpath(root, xpath):
     """ElementTree wants namespaces in its xpaths, so here we add them."""
@@ -99,8 +113,6 @@ class OpsourceResponse(Response):
             if self.status == 400:
             	code = body.findtext(fixxpath(body, "resultCode"))
             	message = body.findtext(fixxpath(body, "resultDetail"))
-                #return "%s: %s" % (code, message)
-                #return (code, message)
                 return OpsourceAPIException(code, message)
         except:
             return self.body
@@ -111,7 +123,7 @@ class OpsourceAPIException(Exception):
         self.msg = msg
         
     def __str__(self):
-        return self.msg
+        return "%s: %s" % (self.code, self.msg)
         
     def __repr__(self):
         return "<OpsourceAPIException: code='%s', msg='%s'>" % (self.code, self.msg)
@@ -142,7 +154,7 @@ class OpsourceConnection(ConnectionUserAndKey):
         )
         
     def request_with_orgId(self, action, params=None, data='', headers=None, method='GET'):
-        action = "%s/%s/%s/%s" % (self.api_path, self.api_version, self.orgId(), action)
+        action = "%s/%s" % (self.get_resource_path(), action)
         
         return super(OpsourceConnection, self).request(
             action=action,
@@ -150,16 +162,14 @@ class OpsourceConnection(ConnectionUserAndKey):
             method=method, headers=headers
         )
 
-    def get_resource_path_with_orgId(self):
-        """this method returns a resource path that is necessary for referencing
+    def get_resource_path(self):
+        """this method returns a resource path which is necessary for referencing
            resources that require a full path instead of just an ID, such as
-           networks, and server images.
-           It is a public method used both internally by this class and callable
-           by other classes.
+           networks, and customer snapshots.
         """
-        return ("%s/%s/%s" % (self.api_path, self.api_version, self.orgId()))
+        return ("%s/%s/%s" % (self.api_path, self.api_version, self._get_orgId()))
         
-    def orgId(self):
+    def _get_orgId(self):
         """
         send the /myaccount API request to opsource cloud and parse the 'orgId' from the
         XML response object.  We need the orgId to use most of the other API functions
@@ -222,11 +232,15 @@ class OpsourceNodeDriver(NodeDriver):
     type = Provider.OPSOURCE
     name = 'Opsource'
     
-    def list_nodes(self):
-        return self._to_nodes(self.connection.request_with_orgId('/server/deployed').object)
+    features = {"create_node": ["password"]}
     
-    def list_sizes(self, location=None):
-        pass
+    def list_nodes(self):
+        nodes = self._to_nodes(self.connection.request_with_orgId('/server/deployed').object)
+        nodes.extend(self._to_nodes(self.connection.request_with_orgId('/server/pendingDeploy').object))
+        return nodes
+    
+    # def list_sizes(self, location=None):
+    #     pass
     
     def list_images(self, location=None):
         """return a list of available images
@@ -242,27 +256,93 @@ class OpsourceNodeDriver(NodeDriver):
         return self._to_locations(self.connection.request_with_orgId('/datacenter').object)
     
     def create_node(self, **kwargs):
+        """Create a new opsource node
+
+        Standard keyword arguments from L{NodeDriver.create_node}:
+        @keyword    name:   String with a name for this new node (required)
+        @type       name:   str
+
+        @keyword    image:  OS Image to boot on node. (required)
+        @type       image:  L{NodeImage}
+
+        @keyword    auth:   Initial authentication information for the node (required)
+        @type       auth:   L{NodeAuthPassword}
+        
+        Non-standard keyword arguments:
+        @keyword    ex_description:  description for this node (required)
+        @type       ex_description:  C{str}
+        
+        @keyword    ex_network:  Network to create the node within (required)
+        @type       ex_network: L{OpsourceNetwork}
+        
+        @keyword    ex_isStarted:  Start server after creation? default true (required)
+        @type       ex_isStarted:  C{bool}
+        
+        @return: The newly created L{Node}. NOTE: Opsource does not provide a way to 
+                 determine the ID of the server that was just created, so the returned
+                 L{Node} is not guaranteed to be the same one that was created.  This
+                 is only the case when multiple nodes with the same name exist.
         """
-        notes:
-            requirements:
-                - node name
-                - description
-                - network id (net-id) (requires a path, not just ID)
-                - image id (requires a path, not just Id)
-                - admin/root password
-                - isStarted = true or false
-        """
-        pass
+        name = kwargs['name']
+        image = kwargs['image']
+        # XXX:  Node sizes can be adjusted after a node is created, but cannot be 
+        #       set at create time because size is part of the image definition.
+        size = NodeSize(id=0,
+                     name='',
+                     ram=0,
+                     disk=None,
+                     bandwidth=None,
+                     price=0,
+                     driver=self.connection.driver)
+                
+        password = None
+        if kwargs.has_key('auth'):
+            auth = kwargs['auth']
+            if isinstance(auth, NodeAuthPassword):
+                password = auth.password
+            else:
+                raise ValueError('auth must be of NodeAuthPassword type')
+        
+        ex_description = kwargs['ex_description']
+        ex_isStarted = kwargs['ex_isStarted']
+        ex_network = kwargs['ex_network']        
+        vlanResourcePath = "%s/%s" % (self.connection.get_resource_path(), ex_network.id)
+
+        imageResourcePath = None
+        if image.extra.has_key('resourcePath'):
+            imageResourcePath = image.extra['resourcePath']
+        else:
+            imageResourcePath = "%s/%s" % (self.connection.get_resource_path(), image.id)
+        
+        server_elm = ET.Element('Server', {'xmlns': SERVER_NS})
+        ET.SubElement(server_elm, "name").text = name
+        ET.SubElement(server_elm, "description").text = ex_description        
+        ET.SubElement(server_elm, "vlanResourcePath").text = vlanResourcePath        
+        ET.SubElement(server_elm, "imageResourcePath").text = imageResourcePath
+        ET.SubElement(server_elm, "administratorPassword").text = password
+        ET.SubElement(server_elm, "isStarted").text = str(ex_isStarted)
+
+        data = self.connection.request_with_orgId('/server',
+                                                  method='POST',
+                                                  data=ET.tostring(server_elm)
+                                                  ).object
+        # XXX: return the last node in the list that has a matching name.  this
+        #      is likely, but not guaranteed, to be the node we just created
+        #      because opsource allows multiple nodes to have the same name
+        return filter(lambda x: x.name == name, self.list_nodes())[-1]
     
     def reboot_node(self, node):
+        """reboots the node"""
         body = self.connection.request_with_orgId('/server/%s?restart' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
-    
+
     def destroy_node(self, node):
         """Destroys the node"""
-        pass
-
+        body = self.connection.request_with_orgId('/server/%s?delete' % node.id).object
+        result = body.findtext(fixxpath(body, "result"))
+        return result == 'SUCCESS'
+    
     def ex_start_node(self, node):
         """Powers on an existing deployed server"""
         body = self.connection.request_with_orgId('/server/%s?start' % node.id).object
@@ -296,7 +376,7 @@ class OpsourceNodeDriver(NodeDriver):
         Returns a list of OpsourceNetwork objects
         """
         return self._to_networks(self.connection.request_with_orgId('/networkWithLocation').object)
-    
+
     def _to_networks(self, object):
         node_elements = object.findall(fixxpath(object, "network"))
         return [ self._to_network(el) for el in node_elements ]
@@ -335,6 +415,7 @@ class OpsourceNodeDriver(NodeDriver):
     
     def _to_nodes(self, object):
         node_elements = object.findall(fixxpath(object, "DeployedServer"))
+        node_elements.extend(object.findall(fixxpath(object, "PendingDeployServer")))
         return [ self._to_node(el) for el in node_elements ]
     
     def _to_node(self, element):
