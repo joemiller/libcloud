@@ -47,7 +47,7 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #   x add OpsourceStatus object support to:
 #       x _to_node()
 #       x _to_network()
-#   - implement test cases
+#   x implement test cases
 #
 # 0.2 - Support customer images (snapshots) and server modification functions
 #   - support customer-created images:
@@ -328,7 +328,7 @@ class OpsourceNodeDriver(NodeDriver):
                                                   data=ET.tostring(server_elm)
                                                   ).object
         # XXX: return the last node in the list that has a matching name.  this
-        #      is likely, but not guaranteed, to be the node we just created
+        #      is likely but not guaranteed to be the node we just created
         #      because opsource allows multiple nodes to have the same name
         return filter(lambda x: x.name == name, self.list_nodes())[-1]
     
