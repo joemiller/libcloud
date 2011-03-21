@@ -21,7 +21,7 @@ from xml.etree import ElementTree as ET
 from xml.parsers.expat import ExpatError
 
 from libcloud.common.base import ConnectionUserAndKey, Response
-from libcloud.common.types import InvalidCredsError, MalformedResponseError
+from libcloud.common.types import LibcloudError, InvalidCredsError, MalformedResponseError
 from libcloud.compute.types import NodeState, Provider
 from libcloud.compute.base import NodeDriver, Node, NodeAuthPassword
 from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
@@ -34,19 +34,20 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #   x implement create_node()  (only support Base OS images, no customer images yet)
 #   x implement reboot()
 #   x implement destroy_node()
-#   - implement list_sizes()
+#   N/A implement list_sizes()
 #   x implement list_images()   (only support Base OS images, no customer images yet)
 #   x implement list_locations()
-#	- implement ex_* extension functions for opsource-specific features
+#	x implement ex_* extension functions for opsource-specific features
 #       x ex_graceful_shutdown
 #       x ex_start_node
 #       x ex_power_off
 #       x ex_list_networks (needed for create_node())
 #   x refactor:  switch to using fixxpath() from the vcloud driver for dealing with xml namespace tags
 #   x refactor:  move some functionality from OpsourceConnection.request() method into new .request_with_orgId() method
-#   - add OpsourceStatus object support to:
+#   x add OpsourceStatus object support to:
 #       x _to_node()
 #       x _to_network()
+#   - implement test cases
 #
 # 0.2 - Support customer images (snapshots) and server modification functions
 #   - support customer-created images:
@@ -108,19 +109,19 @@ class OpsourceResponse(Response):
             body = ET.XML(self.body)
         except:
             raise MalformedResponseError("Failed to parse XML", body=self.body, driver=OpsourceNodeDriver)
-        
-        try:
-            if self.status == 400:
-            	code = body.findtext(fixxpath(body, "resultCode"))
-            	message = body.findtext(fixxpath(body, "resultDetail"))
-                return OpsourceAPIException(code, message)
-        except:
-            return self.body
 
-class OpsourceAPIException(Exception):
-    def __init__(self, code, msg):
+        if self.status == 400:
+            code = body.findtext(fixxpath(body, "resultCode"))
+            message = body.findtext(fixxpath(body, "resultDetail"))
+            raise OpsourceAPIException(code, message, driver=OpsourceNodeDriver)
+
+        return self.body
+
+class OpsourceAPIException(LibcloudError):
+    def __init__(self, code, msg, driver):
         self.code = code
         self.msg = msg
+        self.driver = driver
         
     def __str__(self):
         return "%s: %s" % (self.code, self.msg)
@@ -175,7 +176,7 @@ class OpsourceConnection(ConnectionUserAndKey):
         XML response object.  We need the orgId to use most of the other API functions
         """
         if self._orgId == None:
-            body = self.request('/myaccount').object
+            body = self.request('myaccount').object
             self._orgId = body.findtext(fixxpath(body, "orgId"))
         return self._orgId
 
@@ -235,8 +236,8 @@ class OpsourceNodeDriver(NodeDriver):
     features = {"create_node": ["password"]}
     
     def list_nodes(self):
-        nodes = self._to_nodes(self.connection.request_with_orgId('/server/deployed').object)
-        nodes.extend(self._to_nodes(self.connection.request_with_orgId('/server/pendingDeploy').object))
+        nodes = self._to_nodes(self.connection.request_with_orgId('server/deployed').object)
+        nodes.extend(self._to_nodes(self.connection.request_with_orgId('server/pendingDeploy').object))
         return nodes
     
     # def list_sizes(self, location=None):
@@ -247,13 +248,13 @@ class OpsourceNodeDriver(NodeDriver):
             Currently only returns the default 'base OS images' provided by opsource.
             Customer images (snapshots) are not yet supported.
         """
-        return self._to_base_images(self.connection.request('/base/image').object)
+        return self._to_base_images(self.connection.request('base/image').object)
     
     def list_locations(self):
         """list locations (datacenters) available for instantiating servers and
             networks.  
         """
-        return self._to_locations(self.connection.request_with_orgId('/datacenter').object)
+        return self._to_locations(self.connection.request_with_orgId('datacenter').object)
     
     def create_node(self, **kwargs):
         """Create a new opsource node
@@ -322,7 +323,7 @@ class OpsourceNodeDriver(NodeDriver):
         ET.SubElement(server_elm, "administratorPassword").text = password
         ET.SubElement(server_elm, "isStarted").text = str(ex_isStarted)
 
-        data = self.connection.request_with_orgId('/server',
+        data = self.connection.request_with_orgId('server',
                                                   method='POST',
                                                   data=ET.tostring(server_elm)
                                                   ).object
@@ -333,19 +334,19 @@ class OpsourceNodeDriver(NodeDriver):
     
     def reboot_node(self, node):
         """reboots the node"""
-        body = self.connection.request_with_orgId('/server/%s?restart' % node.id).object
+        body = self.connection.request_with_orgId('server/%s?restart' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
 
     def destroy_node(self, node):
         """Destroys the node"""
-        body = self.connection.request_with_orgId('/server/%s?delete' % node.id).object
+        body = self.connection.request_with_orgId('server/%s?delete' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
     
     def ex_start_node(self, node):
         """Powers on an existing deployed server"""
-        body = self.connection.request_with_orgId('/server/%s?start' % node.id).object
+        body = self.connection.request_with_orgId('server/%s?start' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
             
@@ -355,7 +356,7 @@ class OpsourceNodeDriver(NodeDriver):
 	    on this function means the system has successfully passed the
 	    request into the operating system.
         """
-        body = self.connection.request_with_orgId('/server/%s?shutdown' % node.id).object
+        body = self.connection.request_with_orgId('server/%s?shutdown' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
         
@@ -365,7 +366,7 @@ class OpsourceNodeDriver(NodeDriver):
         be adversely affected by the equivalent of pulling the power plug out of the
         machine.
         """
-        body = self.connection.request_with_orgId('/server/%s?poweroff' % node.id).object
+        body = self.connection.request_with_orgId('server/%s?poweroff' % node.id).object
         result = body.findtext(fixxpath(body, "result"))
         return result == 'SUCCESS'
         
@@ -375,7 +376,7 @@ class OpsourceNodeDriver(NodeDriver):
         
         Returns a list of OpsourceNetwork objects
         """
-        return self._to_networks(self.connection.request_with_orgId('/networkWithLocation').object)
+        return self._to_networks(self.connection.request_with_orgId('networkWithLocation').object)
 
     def _to_networks(self, object):
         node_elements = object.findall(fixxpath(object, "network"))
@@ -450,22 +451,6 @@ class OpsourceNodeDriver(NodeDriver):
                  driver=self.connection.driver,
                  extra=extra)
         return n
-    
-    def _to_sizes(self, object):
-        if object.tag == 'flavor':
-            return [ self._to_size(object) ]
-        elements = object.findall('flavor')
-        return [ self._to_size(el) for el in elements ]
-    
-    def _to_size(self, element):
-        s = NodeSize(id=int(element.findtext('id')),
-                     name=str(element.findtext('name')),
-                     ram=int(element.findtext('ram')),
-                     disk=None, # XXX: needs hardcode
-                     bandwidth=None, # XXX: needs hardcode
-                     price=float(element.findtext('price'))/(100*24*30),
-                     driver=self.connection.driver)
-        return s
     
     def _to_base_images(self, object):
         node_elements = object.findall(fixxpath(object, "ServerImage"))
