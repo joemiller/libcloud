@@ -83,19 +83,68 @@ class OpsourceTests(unittest.TestCase, TestCaseMixin):
             self.assertTrue(True)
             
     def test_create_node_response(self):
-        image = NodeImage(id=11, name='REDHAT5/64', driver=self.driver)
         rootPw = NodeAuthPassword('pass123')
-        location = NodeLocation(id='11', name='test DC', country='USA', driver=self.driver)        
-        network = OpsourceNetwork(id='11', name='testnet1', description='testnet1 descr', 
-                                location=location, privateNet='10.0.0.0', 
-                                multicast=False, status=None)
-        
+        image = self.driver.list_images()[0]
+        location = self.driver.list_locations()[0]
+        network = self.driver.ex_list_networks()[0]    
         node = self.driver.create_node(name='test2', image=image, auth=rootPw,
                                 ex_description='test2 node', ex_network=network,
                                 ex_isStarted=False)
         self.assertEqual(node.id, 'e75ead52-692f-4314-8725-c8a4f4d13a87')
         self.assertEqual(node.extra['status'].action, 'DEPLOY_SERVER')
         
+    def test_ex_shutdown_graceful(self):
+        node = Node(id='11', name=None, state=None,
+                    public_ip=None, private_ip=None, driver=self.driver)
+        ret = self.driver.ex_shutdown_graceful(node)
+        self.assertTrue(ret is True)
+
+    def test_ex_shutdown_graceful_INPROGRESS(self):
+        OpsourceMockHttp.type = 'INPROGRESS'
+        node = Node(id='11', name=None, state=None,
+                    public_ip=None, private_ip=None, driver=self.driver)
+        try:
+            ret = self.driver.ex_shutdown_graceful(node)
+            self.assertTrue(False) # above command should have thrown OpsourceAPIException
+        except OpsourceAPIException:
+            self.assertTrue(True)
+
+    def test_ex_start_node(self):
+        node = Node(id='11', name=None, state=None,
+                    public_ip=None, private_ip=None, driver=self.driver)
+        ret = self.driver.ex_start_node(node)
+        self.assertTrue(ret is True)
+
+    def test_ex_start_node_INPROGRESS(self):
+        OpsourceMockHttp.type = 'INPROGRESS'
+        node = Node(id='11', name=None, state=None,
+                    public_ip=None, private_ip=None, driver=self.driver)
+        try:
+            ret = self.driver.ex_start_node(node)
+            self.assertTrue(False) # above command should have thrown OpsourceAPIException
+        except OpsourceAPIException:
+            self.assertTrue(True)
+
+    def test_ex_power_off(self):
+        node = Node(id='11', name=None, state=None,
+                    public_ip=None, private_ip=None, driver=self.driver)
+        ret = self.driver.ex_power_off(node)
+        self.assertTrue(ret is True)
+
+    def test_ex_power_off_INPROGRESS(self):
+        OpsourceMockHttp.type = 'INPROGRESS'
+        node = Node(id='11', name=None, state=None,
+                    public_ip=None, private_ip=None, driver=self.driver)
+        try:
+            ret = self.driver.ex_power_off(node)
+            self.assertTrue(False) # above command should have thrown OpsourceAPIException
+        except OpsourceAPIException:
+            self.assertTrue(True)
+
+    def test_ex_list_networks(self):
+        nets = self.driver.ex_list_networks()
+        self.assertEqual(nets[0].name, 'test-net1')
+        self.assertTrue(isinstance(nets[0].location, NodeLocation))
 
 class OpsourceMockHttp(MockHttp):
 
@@ -134,8 +183,14 @@ class OpsourceMockHttp(MockHttp):
 
         if action == 'restart':
             body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_restart.xml')
+        elif action == 'shutdown':
+            body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_shutdown.xml')
         elif action == 'delete':
             body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_delete.xml')
+        elif action == 'start':
+            body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_start.xml')
+        elif action == 'poweroff':
+            body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_poweroff.xml')
 
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 
@@ -145,13 +200,23 @@ class OpsourceMockHttp(MockHttp):
 
         if action == 'restart':
             body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_restart_INPROGRESS.xml')
+        elif action == 'shutdown':
+            body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_shutdown_INPROGRESS.xml')            
         elif action == 'delete':
             body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_delete_INPROGRESS.xml')
+        elif action == 'start':
+            body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_start_INPROGRESS.xml')
+        elif action == 'poweroff':
+            body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server_11_poweroff_INPROGRESS.xml')
 
         return (httplib.BAD_REQUEST, body, {}, httplib.responses[httplib.OK])
         
     def _oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server(self, method, url, body, headers):
         body = self.fixtures.load('_oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_server.xml')
+        return (httplib.OK, body, {}, httplib.responses[httplib.OK])
+
+    def _oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_networkWithLocation(self, method, url, body, headers):
+        body = self.fixtures.load('oec_0_9_8a8f6abc_2745_4d8a_9cbc_8dabe5a7d0e4_networkWithLocation.xml')
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
         
 

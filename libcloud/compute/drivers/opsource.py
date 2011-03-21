@@ -378,6 +378,12 @@ class OpsourceNodeDriver(NodeDriver):
         """
         return self._to_networks(self.connection.request_with_orgId('networkWithLocation').object)
 
+    def ex_get_location_by_id(self, id):
+        location = None
+        if id is not None:
+            location = filter(lambda x: x.id == id, self.list_locations())[0]
+        return location
+        
     def _to_networks(self, object):
         node_elements = object.findall(fixxpath(object, "network"))
         return [ self._to_network(el) for el in node_elements ]
@@ -390,10 +396,7 @@ class OpsourceNodeDriver(NodeDriver):
         status = self._to_status(element.find(fixxpath(element, "status")))
 
         location_id = element.findtext(fixxpath(element, "location"))
-        if location_id is not None:
-            location = filter(lambda x: x.id == location_id, self.list_locations())
-        else:
-            location = None
+        location = self.ex_get_location_by_id(location_id)
         
         return OpsourceNetwork(id=element.findtext(fixxpath(element, "id")),
                                name=element.findtext(fixxpath(element, "name")),
@@ -461,10 +464,7 @@ class OpsourceNodeDriver(NodeDriver):
         ## probably need multiple _to_image() functions that parse <ServerImage> differently
         ## than <DeployedImage>
         location_id = element.findtext(fixxpath(element, "location"))
-        if location_id is not None:
-            location = filter(lambda x: x.id == location_id, self.list_locations())
-        else:
-            location = None
+        location = self.ex_get_location_by_id(location_id)
         
         extra = {
             'description': element.findtext(fixxpath(element, "description")),
