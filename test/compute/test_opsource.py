@@ -93,7 +93,6 @@ class OpsourceTests(unittest.TestCase, TestCaseMixin):
         node = self.driver.create_node(name='test2', image=image, auth=rootPw,
                                 ex_description='test2 node', ex_network=network,
                                 ex_isStarted=False)
-        print node
         self.assertEqual(node.id, 'e75ead52-692f-4314-8725-c8a4f4d13a87')
         self.assertEqual(node.extra['status'].action, 'DEPLOY_SERVER')
         
