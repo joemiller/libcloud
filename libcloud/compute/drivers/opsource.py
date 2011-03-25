@@ -292,15 +292,11 @@ class OpsourceNodeDriver(NodeDriver):
         """
         name = kwargs['name']
         image = kwargs['image']
+        
         # XXX:  Node sizes can be adjusted after a node is created, but cannot be 
         #       set at create time because size is part of the image definition.
-        size = NodeSize(id=0,
-                     name='',
-                     ram=0,
-                     disk=None,
-                     bandwidth=None,
-                     price=0,
-                     driver=self.connection.driver)
+        size = NodeSize(id=0, name='', ram=0, disk=None, bandwidth=None,
+                        price=0, driver=self.connection.driver)
                 
         password = None
         if kwargs.has_key('auth'):
