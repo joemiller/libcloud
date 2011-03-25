@@ -34,7 +34,7 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #   x implement create_node()  (only support Base OS images, no customer images yet)
 #   x implement reboot()
 #   x implement destroy_node()
-#   - implement list_sizes()
+#   x implement list_sizes()
 #   x implement list_images()   (only support Base OS images, no customer images yet)
 #   x implement list_locations()
 #	x implement ex_* extension functions for opsource-specific features
@@ -183,11 +183,12 @@ class OpsourceConnection(ConnectionUserAndKey):
 class OpsourceStatus(object):
     """
     Opsource API pending operation status class
-        action, requestTime, username, numberOfSteps, updateTime, step.name, step.number,
-        step.percentComplete, failureReason, 
+        action, requestTime, username, numberOfSteps, updateTime, 
+        step.name, step.number, step.percentComplete, failureReason, 
     """
-    def __init__(self, action=None, requestTime=None, userName=None, numberOfSteps=None, updateTime=None,
-                step_name=None, step_number=None, step_percentComplete=None, failureReason=None):
+    def __init__(self, action=None, requestTime=None, userName=None, 
+                numberOfSteps=None, updateTime=None, step_name=None,
+                step_number=None, step_percentComplete=None, failureReason=None):
         self.action = action
         self.requestTime = requestTime
         self.userName = userName
@@ -199,17 +200,21 @@ class OpsourceStatus(object):
         self.failureReason = failureReason
         
     def __repr__(self):
-        return (('<OpsourceStatus: action=%s, requestTime=%s, userName=%s, numberOfSteps=%s, updateTime=%s, ' \
-                  'step_name=%s, step_number=%s, step_percentComplete=%s, failureReason=%s')
-                  % (self.action, self.requestTime, self.userName, self.numberOfSteps, self.updateTime,
-                    self.step_name, self.step_number, self.step_percentComplete, self.failureReason))
+        return (('<OpsourceStatus: action=%s, requestTime=%s, userName=%s, ' \
+                    'numberOfSteps=%s, updateTime=%s, step_name=%s, ' \
+                    'step_number=%s, step_percentComplete=%s, failureReason=%s')
+                  % (self.action, self.requestTime, self.userName, 
+                    self.numberOfSteps, self.updateTime, self.step_name,
+                    self.step_number, self.step_percentComplete, 
+                    self.failureReason))
 
 class OpsourceNetwork(object):
     """
     Opsource network with location
     """
     
-    def __init__(self, id, name, description, location, privateNet, multicast, status):
+    def __init__(self, id, name, description, location, privateNet, 
+                multicast, status):
         self.id = str(id)
         self.name = name
         self.description = description
@@ -219,8 +224,10 @@ class OpsourceNetwork(object):
         self.status = status
 
     def __repr__(self):
-        return (('<OpsourceNetwork: id=%s, name=%s, description=%s, location=%s, privateNet=%s, multicast=%s>')
-                % (self.id, self.name, self.description, self.location, self.privateNet, self.multicast))
+        return (('<OpsourceNetwork: id=%s, name=%s, description=%s, location=%s, ' \
+                 'privateNet=%s, multicast=%s>')
+                % (self.id, self.name, self.description, self.location,
+                   self.privateNet, self.multicast))
 
                 
 class OpsourceNodeDriver(NodeDriver):
