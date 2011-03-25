@@ -44,11 +44,10 @@ class OpsourceTests(unittest.TestCase, TestCaseMixin):
 
     def test_list_sizes_response(self):
         OpsourceMockHttp.type = None
-        try:
-            self.driver.list_sizes()
-            self.assertTrue(False) # above command should have thrown NotImplementedError
-        except NotImplementedError:
-            self.assertTrue(True)
+        ret = self.driver.list_sizes()
+        self.assertEqual(len(ret), 1)
+        size = ret[0]
+        self.assertEqual(size.name, 'default')
             
     def test_reboot_node_response(self):
         node = Node(id='11', name=None, state=None,

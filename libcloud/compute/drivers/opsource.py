@@ -34,7 +34,7 @@ from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 #   x implement create_node()  (only support Base OS images, no customer images yet)
 #   x implement reboot()
 #   x implement destroy_node()
-#   N/A implement list_sizes()
+#   - implement list_sizes()
 #   x implement list_images()   (only support Base OS images, no customer images yet)
 #   x implement list_locations()
 #	x implement ex_* extension functions for opsource-specific features
@@ -240,9 +240,15 @@ class OpsourceNodeDriver(NodeDriver):
         nodes.extend(self._to_nodes(self.connection.request_with_orgId('server/pendingDeploy').object))
         return nodes
     
-    # def list_sizes(self, location=None):
-    #     pass
-    
+    def list_sizes(self, location=None):
+        return [ NodeSize(id=1,
+                  name="default",
+                  ram=0,
+                  disk=0,
+                  bandwidth=0,
+                  price=0,
+                  driver=self.connection.driver) ]
+
     def list_images(self, location=None):
         """return a list of available images
             Currently only returns the default 'base OS images' provided by opsource.
