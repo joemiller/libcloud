@@ -699,6 +699,52 @@ class EC2NodeDriver(NodeDriver):
         node_elastic_ips = self.ex_describe_addresses([node])
         return node_elastic_ips[node.id]
 
+    def ex_modify_instance_attribute(self, node, attributes):
+        """
+        Modify node attributes.
+        A list of valid attributes can be found at http://goo.gl/gxcj8
+
+        @type node: C{Node}
+        @param node: Node instance
+
+        @type attributes: C{dict}
+        @param attributes: Dictionary with node attributes
+
+        @return bool True on success, False otherwise.
+        """
+        attributes = attributes or {}
+        attributes.update({'InstanceId': node.id})
+
+        params = { 'Action': 'ModifyInstanceAttribute' }
+        params.update(attributes)
+
+        result = self.connection.request(self.path,
+                                         params=params.copy()).object
+        element = self._findtext(result, 'return')
+        return element == 'true'
+
+    def ex_change_node_size(self, node, new_size):
+        """
+        Change the node size.
+        Note: Node must be turned of before changing the size.
+
+        @type node: C{Node}
+        @param node: Node instance
+
+        @type new_size: C{NodeSize}
+        @param new_size: NodeSize intance
+
+        @return bool True on success, False otherwise.
+        """
+        if 'instancetype' in node.extra:
+            current_instance_type = node.extra['instancetype']
+
+            if current_instance_type == new_size.id:
+                raise ValueError('New instance size is the same as the current one')
+
+        attributes = { 'InstanceType.Value': new_size.id }
+        return self.ex_modify_instance_attribute(node, attributes)
+
     def create_node(self, **kwargs):
         """Create a new EC2 node
 

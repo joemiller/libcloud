@@ -77,6 +77,8 @@ DRIVERS = {
         ('libcloud.compute.drivers.ec2', 'NimbusNodeDriver'),
     Provider.BLUEBOX:
         ('libcloud.compute.drivers.bluebox', 'BlueboxNodeDriver'),
+    Provider.GANDI:
+        ('libcloud.compute.drivers.gandi', 'GandiNodeDriver'),
     Provider.OPSOURCE:
         ('libcloud.compute.drivers.opsource', 'OpsourceNodeDriver'),
 }

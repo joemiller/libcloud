@@ -86,8 +86,8 @@ class Provider(object):
     EC2_AP_NORTHEAST = 26
     NIMBUS = 27
     BLUEBOX = 28
-    OPSOURCE = 29
-
+    GANDI = 29
+    OPSOURCE = 30
 
 class NodeState(object):
     """
