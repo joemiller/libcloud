@@ -14,6 +14,8 @@
 # limitations under the License.
 import os
 import sys
+import doctest
+
 from distutils.core import setup
 from distutils.core import Command
 from unittest import TextTestRunner, TestLoader
@@ -26,6 +28,8 @@ libcloud.utils.SHOW_DEPRECATION_WARNING = False
 HTML_VIEWSOURCE_BASE = 'https://svn.apache.org/viewvc/incubator/libcloud/trunk'
 PROJECT_BASE_DIR = 'http://incubator.apache.org/libcloud/'
 TEST_PATHS = [ 'test', 'test/compute', 'test/storage' ]
+DOC_TEST_MODULES = [ 'libcloud.compute.drivers.dummy',
+                     'libcloud.storage.drivers.dummy' ]
 
 class TestCommand(Command):
     user_options = []
@@ -34,13 +38,17 @@ class TestCommand(Command):
         THIS_DIR = os.path.abspath(os.path.split(__file__)[0])
         sys.path.insert(0, THIS_DIR)
         for test_path in TEST_PATHS:
-          sys.path.insert(0, pjoin(THIS_DIR, test_path))
+            sys.path.insert(0, pjoin(THIS_DIR, test_path))
         self._dir = os.getcwd()
 
     def finalize_options(self):
         pass
 
     def run(self):
+        status = self._run_tests()
+        sys.exit(status)
+
+    def _run_tests(self):
         secrets = pjoin(self._dir, 'test', 'secrets.py')
         if not os.path.isfile(secrets):
             print "Missing %s" % (secrets)
@@ -55,11 +63,13 @@ class TestCommand(Command):
             # test for dependencies
             try:
                 import simplejson
+                simplejson              # silence pyflakes
             except ImportError:
                 missing.append("simplejson")
 
             try:
                 import ssl
+                ssl                     # silence pyflakes
             except ImportError:
                 missing.append("ssl")
 
@@ -69,15 +79,18 @@ class TestCommand(Command):
 
         testfiles = []
         for test_path in TEST_PATHS:
-          for t in glob(pjoin(self._dir, test_path, 'test_*.py')):
-              testfiles.append('.'.join(
-                  [test_path.replace('/', '.'), splitext(basename(t))[0]])
-              )
+            for t in glob(pjoin(self._dir, test_path, 'test_*.py')):
+                testfiles.append('.'.join(
+                    [test_path.replace('/', '.'), splitext(basename(t))[0]]))
 
         tests = TestLoader().loadTestsFromNames(testfiles)
+
+        for test_module in DOC_TEST_MODULES:
+            tests.addTests(doctest.DocTestSuite(test_module))
+
         t = TextTestRunner(verbosity = 2)
         res = t.run(tests)
-        sys.exit(not res.wasSuccessful())
+        return not res.wasSuccessful()
 
 class ApiDocsCommand(Command):
     user_options = []
@@ -100,6 +113,27 @@ class ApiDocsCommand(Command):
             % (HTML_VIEWSOURCE_BASE, PROJECT_BASE_DIR)
         )
 
+class CoverageCommand(Command):
+    user_options = []
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        import coverage
+        cov = coverage.coverage(config_file='.coveragerc')
+        cov.start()
+
+        tc = TestCommand(self.distribution)
+        tc._run_tests()
+
+        cov.stop()
+        cov.save()
+        cov.html_report()
+
 # pre-2.6 will need the ssl PyPI package
 pre_python26 = (sys.version_info[0] == 2 and sys.version_info[1] < 6)
 
@@ -121,11 +155,15 @@ setup(
         'libcloud': 'libcloud',
         'libcloud.drivers': 'libcloud/drivers'
     },
+    package_data={
+        'libcloud': ['data/*.json'],
+    },
     license='Apache License (2.0)',
     url='http://incubator.apache.org/libcloud/',
     cmdclass={
         'test': TestCommand,
-        'apidocs': ApiDocsCommand
+        'apidocs': ApiDocsCommand,
+        'coverage': CoverageCommand
     },
     classifiers=[
         'Development Status :: 4 - Beta',

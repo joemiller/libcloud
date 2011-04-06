@@ -1,6 +1,18 @@
                                                         -*- coding: utf-8 -*-
 
 Changes with Apache Libcloud 0.4.3
+   *) Add Bluebox driver.
+      [Christian Paredes]
+   
+   *) Add Nimbus driver.
+      [David LaBissoniere]
+   
+   *) Minor fixes to get the library and tests working on
+      Python 2.7 and PyPy.
+      [Tomaz Muraus]
+
+   *) Added "pricing" module and improved pricing handling.
+      [Tomaz Muraus]
 
    *) Add support for the new Amazon Region (Tokyo)
       [Tomaz Muraus]

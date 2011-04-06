@@ -18,36 +18,22 @@ Rackspace driver
 import os
 
 import base64
-import urlparse
 
 from xml.etree import ElementTree as ET
 from xml.parsers.expat import ExpatError
 
-from libcloud.common.base import ConnectionUserAndKey, Response
-from libcloud.common.types import InvalidCredsError, MalformedResponseError
+from libcloud.pricing import get_pricing
+from libcloud.common.base import Response
+from libcloud.common.types import MalformedResponseError
 from libcloud.compute.types import NodeState, Provider
 from libcloud.compute.base import NodeDriver, Node
 from libcloud.compute.base import NodeSize, NodeImage, NodeLocation
 
-RACKSPACE_US_AUTH_HOST='auth.api.rackspacecloud.com'
-RACKSPACE_UK_AUTH_HOST='lon.auth.api.rackspacecloud.com'
+from libcloud.common.rackspace import (
+    AUTH_HOST_US, AUTH_HOST_UK, RackspaceBaseConnection)
 
-NAMESPACE = 'http://docs.rackspacecloud.com/servers/api/v1.0'
+NAMESPACE='http://docs.rackspacecloud.com/servers/api/v1.0'
 
-#
-# Prices need to be hardcoded as Rackspace doesn't expose them through
-# the API. Prices are associated with flavors, of which there are 7.
-# See - http://www.rackspacecloud.com/cloud_hosting_products/servers/pricing
-#
-RACKSPACE_PRICES = {
-    '1':'.015',
-    '2':'.030',
-    '3':'.060',
-    '4':'.120',
-    '5':'.240',
-    '6':'.480',
-    '7':'.960',
-}
 
 class RackspaceResponse(Response):
 
@@ -61,14 +47,19 @@ class RackspaceResponse(Response):
         try:
             body = ET.XML(self.body)
         except:
-            raise MalformedResponseError("Failed to parse XML", body=self.body, driver=RackspaceNodeDriver)
+            raise MalformedResponseError(
+                "Failed to parse XML",
+                body=self.body,
+                driver=RackspaceNodeDriver)
         return body
     def parse_error(self):
         # TODO: fixup, Rackspace only uses response codes really!
         try:
             body = ET.XML(self.body)
         except:
-            raise MalformedResponseError("Failed to parse XML", body=self.body, driver=RackspaceNodeDriver)
+            raise MalformedResponseError(
+                "Failed to parse XML",
+                body=self.body, driver=RackspaceNodeDriver)
         try:
             text = "; ".join([ err.text or ''
                                for err in
@@ -79,67 +70,19 @@ class RackspaceResponse(Response):
         return '%s %s %s' % (self.status, self.error, text)
 
 
-class RackspaceConnection(ConnectionUserAndKey):
+class RackspaceConnection(RackspaceBaseConnection):
     """
     Connection class for the Rackspace driver
     """
 
-    api_version = 'v1.0'
-    auth_host = RACKSPACE_US_AUTH_HOST
     responseCls = RackspaceResponse
+    auth_host = AUTH_HOST_US
+    _url_key = "server_url"
 
     def __init__(self, user_id, key, secure=True):
-        self.__host = None
-        self.path = None
-        self.token = None
         super(RackspaceConnection, self).__init__(user_id, key, secure)
-
-    def add_default_headers(self, headers):
-        headers['X-Auth-Token'] = self.token;
-        headers['Accept'] = 'application/xml'
-        return headers
-
-    @property
-    def host(self):
-        """
-        Rackspace uses a separate host for API calls which is only provided
-        after an initial authentication request. If we haven't made that
-        request yet, do it here. Otherwise, just return the management host.
-
-        TODO: Fixup for when our token expires (!!!)
-        """
-        if not self.__host:
-            # Initial connection used for authentication
-            conn = self.conn_classes[self.secure](self.auth_host, self.port[self.secure])
-            conn.request(
-                method='GET',
-                url='/%s' % self.api_version,
-                headers={
-                    'X-Auth-User': self.user_id,
-                    'X-Auth-Key': self.key
-                }
-            )
-            resp = conn.getresponse()
-            headers = dict(resp.getheaders())
-            try:
-                self.token = headers['x-auth-token']
-                endpoint = headers['x-server-management-url']
-            except KeyError:
-                raise InvalidCredsError()
-
-            scheme, server, self.path, param, query, fragment = (
-                urlparse.urlparse(endpoint)
-            )
-            if scheme is "https" and self.secure is not 1:
-                # TODO: Custom exception (?)
-                raise InvalidCredsError()
-
-            # Set host to where we want to make further requests to;
-            # close auth conn
-            self.__host = server
-            conn.close()
-
-        return self.__host
+        self.api_version = 'v1.0'
+        self.accept_format = 'application/xml'
 
     def request(self, action, params=None, data='', headers=None, method='GET'):
         if not headers:
@@ -147,8 +90,8 @@ class RackspaceConnection(ConnectionUserAndKey):
         if not params:
             params = {}
         # Due to first-run authentication request, we may not have a path
-        if self.path:
-            action = self.path + action
+        if self.server_url:
+            action = self.server_url + action
         if method in ("POST", "PUT"):
             headers = {'Content-Type': 'application/xml; charset=UTF-8'}
         if method == "GET":
@@ -193,9 +136,11 @@ class RackspaceNodeDriver(NodeDriver):
     """
     connectionCls = RackspaceConnection
     type = Provider.RACKSPACE
+    api_name = 'rackspace'
     name = 'Rackspace'
 
-    _rackspace_prices = RACKSPACE_PRICES
+    _rackspace_prices = get_pricing(driver_type='compute',
+                                    driver_name='rackspace')
 
     features = {"create_node": ["generates_password"]}
 
@@ -247,7 +192,8 @@ class RackspaceNodeDriver(NodeDriver):
 
         server_elm = ET.Element('server', body)
 
-        resp = self.connection.request(uri, method='PUT', data=ET.tostring(server_elm))
+        resp = self.connection.request(
+            uri, method='PUT', data=ET.tostring(server_elm))
 
         if resp.status == 204 and password != None:
             node.extra['password'] = password
@@ -302,7 +248,8 @@ class RackspaceNodeDriver(NodeDriver):
         if files_elm:
             server_elm.append(files_elm)
 
-        shared_ip_elm = self._shared_ip_group_to_xml(kwargs.get("ex_shared_ip_group", None))
+        shared_ip_elm = self._shared_ip_group_to_xml(
+            kwargs.get("ex_shared_ip_group", None))
         if shared_ip_elm:
             server_elm.append(shared_ip_elm)
 
@@ -473,7 +420,8 @@ class RackspaceNodeDriver(NodeDriver):
 
         n = Node(id=el.get('id'),
                  name=el.get('name'),
-                 state=self.NODE_STATE_MAP.get(el.get('status'), NodeState.UNKNOWN),
+                 state=self.NODE_STATE_MAP.get(
+                     el.get('status'), NodeState.UNKNOWN),
                  public_ip=public_ip,
                  private_ip=private_ip,
                  driver=self.connection.driver,
@@ -482,7 +430,9 @@ class RackspaceNodeDriver(NodeDriver):
                     'hostId': el.get('hostId'),
                     'imageId': el.get('imageId'),
                     'flavorId': el.get('flavorId'),
-                    'uri': "https://%s%s/servers/%s" % (self.connection.host, self.connection.path, el.get('id')),
+                    'uri': "https://%s%s/servers/%s" % (
+                         self.connection.host,
+                         self.connection.request_path, el.get('id')),
                     'metadata': metadata,
                  })
         return n
@@ -497,7 +447,7 @@ class RackspaceNodeDriver(NodeDriver):
                      ram=int(el.get('ram')),
                      disk=int(el.get('disk')),
                      bandwidth=None, # XXX: needs hardcode
-                     price=self._rackspace_prices.get(el.get('id')), # Hardcoded,
+                     price=self._get_size_price(el.get('id')), # Hardcoded,
                      driver=self.connection.driver)
         return s
 
@@ -520,7 +470,7 @@ class RackspaceNodeDriver(NodeDriver):
         rates (for example amount of POST requests per day)
         and absolute limits like total amount of available
         RAM to be used by servers.
-        
+
         @return: C{dict} with keys 'rate' and 'absolute'
         """
 
@@ -565,7 +515,8 @@ class RackspaceNodeDriver(NodeDriver):
     def _to_shared_ip_group(self, el):
         servers_el = self._findall(el, 'servers')
         if servers_el:
-            servers = [s.get('id') for s in self._findall(servers_el[0], 'server')]
+            servers = [s.get('id')
+                       for s in self._findall(servers_el[0], 'server')]
         else:
             servers = None
         return RackspaceSharedIpGroup(id=el.get('id'),
@@ -574,8 +525,10 @@ class RackspaceNodeDriver(NodeDriver):
 
     def _to_ip_addresses(self, el):
         return RackspaceNodeIpAddresses(
-            [ip.get('addr') for ip in self._findall(self._findall(el, 'public')[0], 'ip')],
-            [ip.get('addr') for ip in self._findall(self._findall(el, 'private')[0], 'ip')]
+            [ip.get('addr') for ip in
+             self._findall(self._findall(el, 'public')[0], 'ip')],
+            [ip.get('addr') for ip in
+             self._findall(self._findall(el, 'private')[0], 'ip')]
         )
 
     def _shared_ip_group_to_xml(self, shared_ip_group):
@@ -588,7 +541,7 @@ class RackspaceUKConnection(RackspaceConnection):
     """
     Connection class for the Rackspace UK driver
     """
-    auth_host = RACKSPACE_UK_AUTH_HOST
+    auth_host = AUTH_HOST_UK
 
 class RackspaceUKNodeDriver(RackspaceNodeDriver):
     """Driver for Rackspace in the UK (London)

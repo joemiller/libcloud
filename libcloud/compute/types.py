@@ -18,7 +18,18 @@ Base types used by other parts of libcloud
 
 from libcloud.common.types import LibcloudError, MalformedResponseError
 from libcloud.common.types import InvalidCredsError, InvalidCredsException
+__all__ = [
+    "Provider",
+    "NodeState",
+    "DeploymentError",
+    "DeploymentException",
 
+    # @@TR: should the unused imports below be exported?
+    "LibcloudError",
+    "MalformedResponseError",
+    "InvalidCredsError",
+    "InvalidCredsException"
+    ]
 class Provider(object):
     """
     Defines for each of the supported providers
@@ -40,6 +51,8 @@ class Provider(object):
     @cvar OPENNEBULA: OpenNebula.org
     @cvar DREAMHOST: DreamHost Private Server
     @cvar CLOUDSIGMA: CloudSigma
+    @cvar NIMBUS: Nimbus
+    @cvar BLUEBOX: Bluebox
     @cvar OPSOURCE: Opsource Cloud
     """
     DUMMY = 0
@@ -71,7 +84,10 @@ class Provider(object):
     BRIGHTBOX = 24
     CLOUDSIGMA = 25
     EC2_AP_NORTHEAST = 26
-    OPSOURCE = 27
+    NIMBUS = 27
+    BLUEBOX = 28
+    OPSOURCE = 29
+
 
 class NodeState(object):
     """

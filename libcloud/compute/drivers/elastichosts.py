@@ -18,6 +18,7 @@ ElasticHosts Driver
 import re
 import time
 import base64
+import httplib
 
 try:
     import json
@@ -67,6 +68,14 @@ INSTANCE_TYPES = {
         'cpu': 2000,
         'memory': 1700,
         'disk': 160,
+        'bandwidth': None,
+    },
+    'medium': {
+        'id': 'medium',
+        'name': 'Medium instance',
+        'cpu': 3000,
+        'memory': 4096,
+        'disk': 500,
         'bandwidth': None,
     },
     'large': {
@@ -239,6 +248,7 @@ class ElasticHostsBaseNodeDriver(NodeDriver):
     """
 
     type = Provider.ELASTICHOSTS
+    api_name = 'elastichosts'
     name = 'ElasticHosts'
     connectionCls = ElasticHostsBaseConnection
     features = {"create_node": ["generates_password"]}
@@ -281,7 +291,8 @@ class ElasticHostsBaseNodeDriver(NodeDriver):
             size = ElasticHostsNodeSize(
                 id=value['id'],
                 name=value['name'], cpu=value['cpu'], ram=value['memory'],
-                disk=value['disk'], bandwidth=value['bandwidth'], price='',
+                disk=value['disk'], bandwidth=value['bandwidth'], 
+                price=self._get_size_price(size_id=value['id']),
                 driver=self.connection.driver
             )
             sizes.append(size)
@@ -427,7 +438,7 @@ class ElasticHostsBaseNodeDriver(NodeDriver):
             method='POST'
         )
 
-        return (response.status == 200 and response.body != '')
+        return (response.status == httplib.OK and response.body != '')
 
     def deploy_node(self, **kwargs):
         """
