@@ -307,15 +307,18 @@ class OpsourceNodeDriver(NodeDriver):
                 
         password = None
         if kwargs.has_key('auth'):
-            auth = kwargs['auth']
+            auth = kwargs.get('auth')
             if isinstance(auth, NodeAuthPassword):
                 password = auth.password
             else:
                 raise ValueError('auth must be of NodeAuthPassword type')
         
-        ex_description = kwargs['ex_description']
-        ex_isStarted = kwargs['ex_isStarted']
-        ex_network = kwargs['ex_network']        
+        ex_description = kwargs.get('ex_description', '')
+        ex_isStarted = kwargs.get('ex_isStarted', True)
+        
+        ex_network = kwargs.get('ex_network')
+        if not isinstance(ex_network, OpsourceNetwork):
+            raise ValueError('ex_network must be of OpsourceNetwork type')
         vlanResourcePath = "%s/%s" % (self.connection.get_resource_path(), ex_network.id)
 
         imageResourcePath = None
