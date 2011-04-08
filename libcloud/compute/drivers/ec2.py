@@ -26,7 +26,9 @@ import copy
 from hashlib import sha256
 from xml.etree import ElementTree as ET
 
-from libcloud.common.base import Response, ConnectionUserAndKey
+from libcloud.utils import fixxpath, findtext, findattr, findall
+from libcloud.common.base import ConnectionUserAndKey
+from libcloud.common.aws import AWSBaseResponse
 from libcloud.common.types import InvalidCredsError, MalformedResponseError, LibcloudError
 from libcloud.compute.providers import Provider
 from libcloud.compute.types import NodeState
@@ -146,19 +148,10 @@ class EC2NodeLocation(NodeLocation):
                 % (self.id, self.name, self.country,
                    self.availability_zone.name, self.driver.name))
 
-class EC2Response(Response):
+class EC2Response(AWSBaseResponse):
     """
     EC2 specific response parsing and error handling.
     """
-    def parse_body(self):
-        if not self.body:
-            return None
-        try:
-          body = ET.XML(self.body)
-        except:
-          raise MalformedResponseError("Failed to parse XML", body=self.body, driver=EC2NodeDriver)
-        return body
-
     def parse_error(self):
         err_list = []
         # Okay, so for Eucalyptus, you can get a 403, with no body,
@@ -269,19 +262,6 @@ class EC2NodeDriver(NodeDriver):
         'terminated': NodeState.TERMINATED
     }
 
-    def _findtext(self, element, xpath):
-        return element.findtext(self._fixxpath(xpath))
-
-    def _fixxpath(self, xpath):
-        # ElementTree wants namespaces in its xpaths, so here we add them.
-        return "/".join(["{%s}%s" % (NAMESPACE, e) for e in xpath.split("/")])
-
-    def _findattr(self, element, xpath):
-        return element.findtext(self._fixxpath(xpath))
-
-    def _findall(self, element, xpath):
-        return element.findall(self._fixxpath(xpath))
-
     def _pathlist(self, key, arr):
         """
         Converts a key and an array of values into AWS query param format.
@@ -305,42 +285,60 @@ class EC2NodeDriver(NodeDriver):
 
     def _to_nodes(self, object, xpath, groups=None):
         return [ self._to_node(el, groups=groups)
-                 for el in object.findall(self._fixxpath(xpath)) ]
+                 for el in object.findall(fixxpath(xpath=xpath, namespace=NAMESPACE)) ]
 
     def _to_node(self, element, groups=None):
         try:
             state = self.NODE_STATE_MAP[
-                self._findattr(element, "instanceState/name")
+                findattr(element=element, xpath="instanceState/name",
+                         namespace=NAMESPACE)
             ]
         except KeyError:
             state = NodeState.UNKNOWN
 
         n = Node(
-            id=self._findtext(element, 'instanceId'),
-            name=self._findtext(element, 'instanceId'),
+            id=findtext(element=element, xpath='instanceId',
+                        namespace=NAMESPACE),
+            name=findtext(element=element, xpath='instanceId',
+                          namespace=NAMESPACE),
             state=state,
-            public_ip=[self._findtext(element, 'ipAddress')],
-            private_ip=[self._findtext(element, 'privateIpAddress')],
+            public_ip=[findtext(element=element, xpath='ipAddress',
+                                namespace=NAMESPACE)],
+            private_ip=[findtext(element=element, xpath='privateIpAddress',
+                                 namespace=NAMESPACE)],
             driver=self.connection.driver,
             extra={
-                'dns_name': self._findattr(element, "dnsName"),
-                'instanceId': self._findattr(element, "instanceId"),
-                'imageId': self._findattr(element, "imageId"),
-                'private_dns': self._findattr(element, "privateDnsName"),
-                'status': self._findattr(element, "instanceState/name"),
-                'keyname': self._findattr(element, "keyName"),
-                'launchindex': self._findattr(element, "amiLaunchIndex"),
+                'dns_name': findattr(element=element, xpath="dnsName",
+                                     namespace=NAMESPACE),
+                'instanceId': findattr(element=element, xpath="instanceId",
+                                       namespace=NAMESPACE),
+                'imageId': findattr(element=element, xpath="imageId",
+                                   namespace=NAMESPACE),
+                'private_dns': findattr(element=element, xpath="privateDnsName",
+                                        namespace=NAMESPACE),
+                'status': findattr(element=element, xpath="instanceState/name",
+                                   namespace=NAMESPACE),
+                'keyname': findattr(element=element, xpath="keyName",
+                                    namespace=NAMESPACE),
+                'launchindex': findattr(element=element, xpath="amiLaunchIndex",
+                                        namespace=NAMESPACE),
                 'productcode':
-                    [p.text for p in self._findall(
-                        element, "productCodesSet/item/productCode"
+                    [p.text for p in findall(element=element,
+                       xpath="productCodesSet/item/productCode",
+                       namespace=NAMESPACE
                      )],
-                'instancetype': self._findattr(element, "instanceType"),
-                'launchdatetime': self._findattr(element, "launchTime"),
-                'availability': self._findattr(element,
-                                               "placement/availabilityZone"),
-                'kernelid': self._findattr(element, "kernelId"),
-                'ramdiskid': self._findattr(element, "ramdiskId"),
-                'clienttoken' : self._findattr(element, "clientToken"),
+                'instancetype': findattr(element=element, xpath="instanceType",
+                                         namespace=NAMESPACE),
+                'launchdatetime': findattr(element=element, xpath="launchTime",
+                                           namespace=NAMESPACE),
+                'availability': findattr(element, xpath="placement/availabilityZone",
+                                         namespace=NAMESPACE),
+                'kernelid': findattr(element=element, xpath="kernelId",
+                                     namespace=NAMESPACE),
+                'ramdiskid': findattr(element=element, xpath="ramdiskId",
+                                      namespace=NAMESPACE),
+                'clienttoken' : findattr(element=element, xpath="clientToken",
+                                         namespace=NAMESPACE),
                 'groups': groups
             }
         )
@@ -349,12 +347,14 @@ class EC2NodeDriver(NodeDriver):
     def _to_images(self, object):
         return [ self._to_image(el)
                  for el in object.findall(
-                    self._fixxpath('imagesSet/item')
+                    fixxpath(xpath='imagesSet/item', namespace=NAMESPACE)
                  ) ]
 
     def _to_image(self, element):
-        n = NodeImage(id=self._findtext(element, 'imageId'),
-                      name=self._findtext(element, 'imageLocation'),
+        n = NodeImage(id=findtext(element=element, xpath='imageId',
+                                  namespace=NAMESPACE),
+                      name=findtext(element=element, xpath='imageLocation',
+                                    namespace=NAMESPACE),
                       driver=self.connection.driver)
         return n
 
@@ -362,9 +362,11 @@ class EC2NodeDriver(NodeDriver):
         params = {'Action': 'DescribeInstances' }
         elem=self.connection.request(self.path, params=params).object
         nodes=[]
-        for rs in self._findall(elem, 'reservationSet/item'):
+        for rs in findall(element=elem, xpath='reservationSet/item',
+                          namespace=NAMESPACE):
             groups=[g.findtext('')
-                        for g in self._findall(rs, 'groupSet/item/groupId')]
+                        for g in findall(element=rs, xpath='groupSet/item/groupId',
+                                         namespace=NAMESPACE)]
             nodes += self._to_nodes(rs, 'instancesSet/item', groups)
 
         nodes_elastic_ips_mappings = self.ex_describe_addresses(nodes)
@@ -424,8 +426,10 @@ class EC2NodeDriver(NodeDriver):
             'KeyName': name,
         }
         response = self.connection.request(self.path, params=params).object
-        key_material = self._findtext(response, 'keyMaterial')
-        key_fingerprint = self._findtext(response, 'keyFingerprint')
+        key_material = findtext(element=response, xpath='keyMaterial',
+                                      namespace=NAMESPACE)
+        key_fingerprint = findtext(element=response, xpath='keyFingerprint',
+                                   namespace=NAMESPACE)
         return {
             'keyMaterial': key_material,
             'keyFingerprint': key_fingerprint,
@@ -453,8 +457,9 @@ class EC2NodeDriver(NodeDriver):
         }
 
         response = self.connection.request(self.path, params=params).object
-        key_name = self._findtext(response, 'keyName')
-        key_fingerprint = self._findtext(response, 'keyFingerprint')
+        key_name = findtext(element=response, xpath='keyName', namespace=NAMESPACE)
+        key_fingerprint = findtext(element=response, xpath='keyFingerprint',
+                                   namespace=NAMESPACE)
         return {
                 'keyName': key_name,
                 'keyFingerprint': key_fingerprint,
@@ -475,7 +480,8 @@ class EC2NodeDriver(NodeDriver):
         }
 
         response = self.connection.request(self.path, params=params).object
-        key_name = self._findattr(response, 'keySet/item/keyName')
+        key_name = findattr(element=response, xpath='keySet/item/keyName',
+                            namespace=NAMESPACE)
         return {
                 'keyName': key_name
         }
@@ -565,10 +571,14 @@ class EC2NodeDriver(NodeDriver):
                                          params=params.copy()).object
 
         availability_zones = []
-        for element in self._findall(result, 'availabilityZoneInfo/item'):
-            name = self._findtext(element, 'zoneName')
-            zone_state = self._findtext(element, 'zoneState')
-            region_name = self._findtext(element, 'regionName')
+        for element in findall(element=result, xpath='availabilityZoneInfo/item',
+                               namespace=NAMESPACE):
+            name = findtext(element=element, xpath='zoneName',
+                            namespace=NAMESPACE)
+            zone_state = findtext(element=element, xpath='zoneState',
+                                  namespace=NAMESPACE)
+            region_name = findtext(element=element, xpath='regionName',
+                                   namespace=NAMESPACE)
 
             availability_zone = ExEC2AvailabilityZone(
                 name=name,
@@ -599,9 +609,10 @@ class EC2NodeDriver(NodeDriver):
                                          params=params.copy()).object
 
         tags = {}
-        for element in self._findall(result, 'tagSet/item'):
-            key = self._findtext(element, 'key')
-            value = self._findtext(element, 'value')
+        for element in findall(element=result, xpath='tagSet/item',
+                               namespace=NAMESPACE):
+            key = findtext(element=element, xpath='key', namespace=NAMESPACE)
+            value = findtext(element=element, xpath='value', namespace=NAMESPACE)
 
             tags[key] = value
         return tags
@@ -677,9 +688,12 @@ class EC2NodeDriver(NodeDriver):
 
         for node_id in node_instance_ids:
             nodes_elastic_ip_mappings.setdefault(node_id, [])
-        for element in self._findall(result, 'addressesSet/item'):
-            instance_id = self._findtext(element, 'instanceId')
-            ip_address = self._findtext(element, 'publicIp')
+        for element in findall(element=result, xpath='addressesSet/item',
+                               namespace=NAMESPACE):
+            instance_id = findtext(element=element, xpath='instanceId',
+                                   namespace=NAMESPACE)
+            ip_address = findtext(element=element, xpath='publicIp',
+                                  namespace=NAMESPACE)
 
             if instance_id not in node_instance_ids:
                 continue
@@ -720,7 +734,8 @@ class EC2NodeDriver(NodeDriver):
 
         result = self.connection.request(self.path,
                                          params=params.copy()).object
-        element = self._findtext(result, 'return')
+        element = findtext(element=result, xpath='return',
+                           namespace=NAMESPACE)
         return element == 'true'
 
     def ex_change_node_size(self, node, new_size):
@@ -995,4 +1010,3 @@ class NimbusNodeDriver(EC2NodeDriver):
             # empty list per node
             nodes_elastic_ip_mappings[node.id] = []
         return nodes_elastic_ip_mappings
-
