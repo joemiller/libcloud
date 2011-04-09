@@ -20,6 +20,7 @@ import socket
 from xml.etree import ElementTree as ET
 from xml.parsers.expat import ExpatError
 
+from libcloud.utils import fixxpath, findtext, findall
 from libcloud.common.base import ConnectionUserAndKey, Response
 from libcloud.common.types import LibcloudError, InvalidCredsError, MalformedResponseError
 from libcloud.compute.types import NodeState, Provider
@@ -82,12 +83,6 @@ GENERAL_NS           = NAMESPACE_BASE + "/general"
 IPPLAN_NS            = NAMESPACE_BASE + "/ipplan"
 WHITELABEL_NS        = NAMESPACE_BASE + "/whitelabel"
 
-def fixxpath(root, xpath):
-    """ElementTree wants namespaces in its xpaths, so here we add them."""
-    namespace, root_tag = root.tag[1:].split("}", 1)
-    fixed_xpath = "/".join(["{%s}%s" % (namespace, e)
-                            for e in xpath.split("/")])
-    return fixed_xpath
 
 class OpsourceResponse(Response):
     
@@ -111,8 +106,8 @@ class OpsourceResponse(Response):
             raise MalformedResponseError("Failed to parse XML", body=self.body, driver=OpsourceNodeDriver)
 
         if self.status == 400:
-            code = body.findtext(fixxpath(body, "resultCode"))
-            message = body.findtext(fixxpath(body, "resultDetail"))
+            code = findtext(body, 'resultCode', SERVER_NS)
+            message = findtext(body, 'resultDetail', SERVER_NS)
             raise OpsourceAPIException(code, message, driver=OpsourceNodeDriver)
 
         return self.body
@@ -177,7 +172,7 @@ class OpsourceConnection(ConnectionUserAndKey):
         """
         if self._orgId == None:
             body = self.request('myaccount').object
-            self._orgId = body.findtext(fixxpath(body, "orgId"))
+            self._orgId = findtext(body, 'orgId', DIRECTORY_NS)
         return self._orgId
 
 class OpsourceStatus(object):
@@ -347,19 +342,19 @@ class OpsourceNodeDriver(NodeDriver):
     def reboot_node(self, node):
         """reboots the node"""
         body = self.connection.request_with_orgId('server/%s?restart' % node.id).object
-        result = body.findtext(fixxpath(body, "result"))
+        result = findtext(body, 'result', GENERAL_NS)
         return result == 'SUCCESS'
 
     def destroy_node(self, node):
         """Destroys the node"""
         body = self.connection.request_with_orgId('server/%s?delete' % node.id).object
-        result = body.findtext(fixxpath(body, "result"))
+        result = findtext(body, 'result', GENERAL_NS)
         return result == 'SUCCESS'
     
     def ex_start_node(self, node):
         """Powers on an existing deployed server"""
         body = self.connection.request_with_orgId('server/%s?start' % node.id).object
-        result = body.findtext(fixxpath(body, "result"))
+        result = findtext(body, 'result', GENERAL_NS)
         return result == 'SUCCESS'
             
     def ex_shutdown_graceful(self, node):
@@ -369,7 +364,7 @@ class OpsourceNodeDriver(NodeDriver):
 	    request into the operating system.
         """
         body = self.connection.request_with_orgId('server/%s?shutdown' % node.id).object
-        result = body.findtext(fixxpath(body, "result"))
+        result = findtext(body, 'result', GENERAL_NS)
         return result == 'SUCCESS'
         
     def ex_power_off(self, node):
@@ -379,7 +374,7 @@ class OpsourceNodeDriver(NodeDriver):
         machine.
         """
         body = self.connection.request_with_orgId('server/%s?poweroff' % node.id).object
-        result = body.findtext(fixxpath(body, "result"))
+        result = findtext(body, 'result', GENERAL_NS)
         return result == 'SUCCESS'
         
     def ex_list_networks(self):
@@ -397,102 +392,102 @@ class OpsourceNodeDriver(NodeDriver):
         return location
         
     def _to_networks(self, object):
-        node_elements = object.findall(fixxpath(object, "network"))
+        node_elements = findall(object, 'network', NETWORK_NS)
         return [ self._to_network(el) for el in node_elements ]
         
     def _to_network(self, element):
         multicast = False
-        if element.findtext(fixxpath(element, "multicast")) == 'true':
+        if findtext(element, 'multicast', NETWORK_NS) == 'true':
             multicast = True
 
-        status = self._to_status(element.find(fixxpath(element, "status")))
-
-        location_id = element.findtext(fixxpath(element, "location"))
+        status = self._to_status(element.find(fixxpath('status', NETWORK_NS)))
+        
+        location_id = findtext(element, 'location', NETWORK_NS)
         location = self.ex_get_location_by_id(location_id)
         
-        return OpsourceNetwork(id=element.findtext(fixxpath(element, "id")),
-                               name=element.findtext(fixxpath(element, "name")),
-                               description=element.findtext(fixxpath(element, "description")),
+        return OpsourceNetwork(id=findtext(element, 'id', NETWORK_NS),
+                               name=findtext(element, 'name', NETWORK_NS),
+                               description=findtext(element, 'description', NETWORK_NS),
                                location=location,
-                               privateNet=element.findtext(fixxpath(element, "privateNet")),
+                               privateNet=findtext(element, 'privateNet', NETWORK_NS),
                                multicast=multicast,
                                status=status)
     
     def _to_locations(self, object):
-        node_elements = object.findall(fixxpath(object, "datacenter"))
+        node_elements = object.findall(fixxpath('datacenter', DATACENTER_NS))
         return [ self._to_location(el) for el in node_elements ]
     
     def _to_location(self, element):
-        l = NodeLocation(id=element.findtext(fixxpath(element, "location")),
-                         name=element.findtext(fixxpath(element, "displayName")),
-                         country=element.findtext(fixxpath(element, "country")),
+        l = NodeLocation(id=findtext(element, 'location', DATACENTER_NS),
+                         name=findtext(element, 'displayName', DATACENTER_NS),
+                         country=findtext(element, 'country', DATACENTER_NS),
                          driver=self)
         return l
     
     def _to_nodes(self, object):
-        node_elements = object.findall(fixxpath(object, "DeployedServer"))
-        node_elements.extend(object.findall(fixxpath(object, "PendingDeployServer")))
+        node_elements = object.findall(fixxpath('DeployedServer', SERVER_NS))
+        node_elements.extend(object.findall(fixxpath('PendingDeployServer', SERVER_NS)))
         return [ self._to_node(el) for el in node_elements ]
     
     def _to_node(self, element):
-        if element.findtext(fixxpath(element, "isStarted")) == 'true':
+        if findtext(element, 'isStarted', SERVER_NS) == 'true':
              state = NodeState.RUNNING
         else:
             state = NodeState.TERMINATED
 
-        status = self._to_status(element.find(fixxpath(element, "status")))
+        status = self._to_status(element.find(fixxpath('status', SERVER_NS)))
             
         extra = {
-            'description': element.findtext(fixxpath(element, "description")),
-            'sourceImageId': element.findtext(fixxpath(element,"sourceImageId")),
-            'networkId': element.findtext(fixxpath(element, "networkId")),
-            'networkId': element.findtext(fixxpath(element, "networkId")),
-            'machineName': element.findtext(fixxpath(element, "machineName")),
-            'deployedTime': element.findtext(fixxpath(element, "deployedTime")),
-            'cpuCount': element.findtext(fixxpath(element, "machineSpecification/cpuCount")),
-            'memoryMb': element.findtext(fixxpath(element, "machineSpecification/memoryMb")),
-            'osStorageGb': element.findtext(fixxpath(element, "machineSpecification/osStorageGb")),
-            'additionalLocalStorageGb': element.findtext(fixxpath(element, "machineSpecification/additionalLocalStorageGb")),
-            'OS_type': element.findtext(fixxpath(element, "machineSpecification/operatingSystem/type")),
-            'OS_displayName': element.findtext(fixxpath(element, "machineSpecification/operatingSystem/displayName")),
+            'description': findtext(element, 'description', SERVER_NS),
+            'sourceImageId': findtext(element, 'sourceImageId', SERVER_NS),
+            'networkId': findtext(element, 'networkId', SERVER_NS),
+            'machineName': findtext(element, 'machineName', SERVER_NS),
+            'deployedTime': findtext(element, 'deployedTime', SERVER_NS),
+            'cpuCount': findtext(element, 'machineSpecification/cpuCount', SERVER_NS),
+            'memoryMb': findtext(element, 'machineSpecification/memoryMb', SERVER_NS),
+            'osStorageGb': findtext(element, 'machineSpecification/osStorageGb', SERVER_NS),
+            'additionalLocalStorageGb': findtext(element, 'machineSpecification/additionalLocalStorageGb', SERVER_NS),
+            'OS_type': findtext(element, 'machineSpecification/operatingSystem/type', SERVER_NS),
+            'OS_displayName': findtext(element, 'machineSpecification/operatingSystem/displayName', SERVER_NS),
             'status': status,
         }
         
-        n = Node(id=element.findtext(fixxpath(element, "id")),
-                 name=element.findtext(fixxpath(element, "name")),
+        n = Node(id=findtext(element, 'id', SERVER_NS),
+                 name=findtext(element, 'name', SERVER_NS),
                  state=state,
                  public_ip="unknown",
-                 private_ip=element.findtext(fixxpath(element, "privateIpAddress")),
+                 private_ip=findtext(element, 'privateIpAddress', SERVER_NS),
                  driver=self.connection.driver,
                  extra=extra)
         return n
     
     def _to_base_images(self, object):
-        node_elements = object.findall(fixxpath(object, "ServerImage"))
+        node_elements = object.findall(fixxpath("ServerImage", SERVER_NS))
         return [ self._to_base_image(el) for el in node_elements ]
     
     def _to_base_image(self, element):
-        ## place ##
-        ## probably need multiple _to_image() functions that parse <ServerImage> differently
-        ## than <DeployedImage>
-        location_id = element.findtext(fixxpath(element, "location"))
+        # Eventually we will probably need multiple _to_image() functions
+        # that parse <ServerImage> differently than <DeployedImage>.
+        # DeployedImages are customer snapshot images, and ServerImages are
+        # 'base' images provided by opsource
+        location_id = findtext(element, 'location', SERVER_NS)
         location = self.ex_get_location_by_id(location_id)
         
         extra = {
-            'description': element.findtext(fixxpath(element, "description")),
-            'OS_type': element.findtext(fixxpath(element, "operatingSystem/type")),
-            'OS_displayName': element.findtext(fixxpath(element, "operatingSystem/displayName")),
-            'cpuCount': element.findtext(fixxpath(element, "cpuCount")),
-            'resourcePath': element.findtext(fixxpath(element, "resourcePath")),
-            'memory': element.findtext(fixxpath(element, "memory")),
-            'osStorage': element.findtext(fixxpath(element, "osStorage")),
-            'additionalStorage': element.findtext(fixxpath(element, "additionalStorage")),
-            'created': element.findtext(fixxpath(element, "created")),
+            'description': findtext(element, 'description', SERVER_NS),
+            'OS_type': findtext(element, 'operatingSystem/type', SERVER_NS),
+            'OS_displayName': findtext(element, 'operatingSystem/displayName', SERVER_NS),
+            'cpuCount': findtext(element, 'cpuCount', SERVER_NS),
+            'resourcePath': findtext(element, 'resourcePath', SERVER_NS),
+            'memory': findtext(element, 'memory', SERVER_NS),
+            'osStorage': findtext(element, 'osStorage', SERVER_NS),
+            'additionalStorage': findtext(element, 'additionalStorage', SERVER_NS),
+            'created': findtext(element, 'created', SERVER_NS),
             'location': location,
         }
         
-        i = NodeImage(id=str(element.findtext(fixxpath(element, "id"))),
-                     name=str(element.findtext(fixxpath(element, "name"))),
+        i = NodeImage(id=str(findtext(element, 'id', SERVER_NS)),
+                     name=str(findtext(element, 'name', SERVER_NS)),
                      extra=extra,
                      driver=self.connection.driver)
         return i
@@ -500,12 +495,12 @@ class OpsourceNodeDriver(NodeDriver):
     def _to_status(self, element):
         if element == None:
             return OpsourceStatus()
-        s = OpsourceStatus(action=element.findtext(fixxpath(element, "action")),
-                          requestTime=element.findtext(fixxpath(element, "requestTime")),
-                          userName=element.findtext(fixxpath(element, "userName")),
-                          numberOfSteps=element.findtext(fixxpath(element, "numberOfSteps")),
-                          step_name=element.findtext(fixxpath(element, "step/name")),
-                          step_number=element.findtext(fixxpath(element, "step/number")),
-                          step_percentComplete=element.findtext(fixxpath(element, "step/percentComplete")),
-                          failureReason=element.findtext(fixxpath(element, "failureReason")))
+        s = OpsourceStatus(action=findtext(element, 'action', SERVER_NS),
+                          requestTime=findtext(element, 'requestTime', SERVER_NS),
+                          userName=findtext(element, 'userName', SERVER_NS),
+                          numberOfSteps=findtext(element, 'numberOfSteps', SERVER_NS),
+                          step_name=findtext(element, 'step/name', SERVER_NS),
+                          step_number=findtext(element, 'step_number', SERVER_NS),
+                          step_percentComplete=findtext(element, 'step/percentComplete', SERVER_NS),
+                          failureReason=findtext(element, 'failureReason', SERVER_NS))
         return s
