@@ -16,7 +16,7 @@
 # Backward compatibility for Python 2.5
 from __future__ import with_statement
 
-import os
+import httplib
 import os.path                          # pylint: disable-msg=W0404
 import hashlib
 from os.path import join as pjoin
@@ -24,6 +24,7 @@ from os.path import join as pjoin
 from libcloud import utils
 from libcloud.common.types import LibcloudError
 from libcloud.common.base import ConnectionKey
+from libcloud.storage.types import ObjectDoesNotExistError
 
 CHUNK_SIZE = 8096
 
@@ -365,6 +366,41 @@ class StorageDriver(object):
         raise NotImplementedError(
             'delete_container not implemented for this driver')
 
+    def _get_object(self, obj, callback, callback_kwargs, response,
+                    success_status_code=None):
+        """
+        Call passed callback and start transfer of the object'
+
+        @type obj: C{Object}
+        @param obj: Object instance.
+
+        @type callback: C{Function}
+        @param callback: Function which is called with the passed callback_kwargs
+
+        @type callback_kwargs: C{dict}
+        @param callback_kwargs: Keyword arguments which are passed to the callback.
+
+        @typed response: C{Response}
+        @param response: Response instance.
+
+        @type success_status_code: C{int}
+        @param success_status_code: Status code which represents a successful
+                                    transfer (defaults to httplib.OK)
+
+        @return C{bool} True on success, False otherwise.
+        """
+        success_status_code = success_status_code or httplib.OK
+
+        if response.status == success_status_code:
+            return callback(**callback_kwargs)
+        elif response.status == httplib.NOT_FOUND:
+            raise ObjectDoesNotExistError(object_name=obj.name,
+                                          value='', driver=self)
+
+        raise LibcloudError(value='Unexpected status code: %s' %
+                                  (response.status),
+                            driver=self)
+
     def _save_object(self, response, obj, destination_path,
                      overwrite_existing=False, delete_on_failure=True,
                      chunk_size=None):
@@ -433,7 +469,7 @@ class StorageDriver(object):
                 except StopIteration:
                     data_read = ''
 
-        if obj.size != bytes_transferred:
+        if int(obj.size) != int(bytes_transferred):
             # Transfer failed, support retry?
             if delete_on_failure:
                 try:
@@ -444,6 +480,54 @@ class StorageDriver(object):
             return False
 
         return True
+
+    def _upload_object(self, object_name, content_type, upload_func,
+                       upload_func_kwargs, request_path, request_method='PUT',
+                       headers=None, file_path=None, iterator=None):
+        """
+        Helper function for setting common request headers and calling the
+        passed in callback which uploads an object.
+        """
+        headers = headers or {}
+
+        if file_path and not os.path.exists(file_path):
+          raise OSError('File %s does not exist' % (file_path))
+
+        if not content_type:
+            if file_path:
+                name = file_path
+            else:
+                name = object_name
+            content_type, _ = utils.guess_file_mime_type(name)
+
+            if not content_type:
+                raise AttributeError(
+                    'File content-type could not be guessed and' +
+                    ' no content_type value provided')
+
+        if iterator:
+            headers['Transfer-Encoding'] = 'chunked'
+            upload_func_kwargs['chunked'] = True
+        else:
+            file_size = os.path.getsize(file_path)
+            headers['Content-Length'] = file_size
+            upload_func_kwargs['chunked'] = False
+
+        headers['Content-Type'] = content_type
+        response = self.connection.request(request_path,
+                                           method=request_method, data=None,
+                                           headers=headers, raw=True)
+
+        upload_func_kwargs['response'] = response
+        success, data_hash, bytes_transferred = upload_func(**upload_func_kwargs)
+
+        if not success:
+            raise LibcloudError(value='Object upload failed, Perhaps a timeout?',
+                                driver=self)
+
+        result_dict = { 'response': response, 'data_hash': data_hash,
+                        'bytes_transferred': bytes_transferred }
+        return result_dict
 
     def _stream_data(self, response, iterator, chunked=False,
                      calculate_hash=True, chunk_size=None):
@@ -490,10 +574,7 @@ class StorageDriver(object):
                 else:
                     response.connection.connection.send(chunk)
             except Exception:
-                # @@TR: this wildcard try/except block looks like it
-                # could mask unexpected errors. It should be narrowed
-                # down to expected exceptions.
-
+                # TODO: let this exception propagate
                 # Timeout, etc.
                 return False, None, bytes_transferred
 
